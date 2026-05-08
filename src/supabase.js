@@ -8,6 +8,10 @@ if (!url || !key) {
   console.error('Variáveis de ambiente do Supabase não configuradas. Verifique o arquivo .env')
 }
 
+// ── Servidor de mídia (VPS aladim.digital) ───────────────────
+const MIDIA_BASE  = 'https://media.aladim.digital'
+const MIDIA_TOKEN = 'aladim-midia-2026-token-temporario'
+
 // ── Instância compartilhada (anon) ───────────────────────────
 export const supabase = createClient(url, key, {
   auth: { persistSession: true, autoRefreshToken: true }
@@ -94,21 +98,49 @@ export async function addHistory(osId, status, byName, byId) {
   if (error) throw error
 }
 
-// ── Fotos ─────────────────────────────────────────────────────
+// ── Fotos (upload via servidor de mídia VPS aladim.digital) ──
 export async function uploadPhoto(osId, stage, file) {
-  const ext  = file.name.split('.').pop()
-  const path = `${osId}/${stage}/${Date.now()}.${ext}`
-  const { error: upErr } = await supabase.storage.from('os-photos').upload(path, file, { cacheControl: '3600', upsert: false })
-  if (upErr) throw upErr
-  const { data } = supabase.storage.from('os-photos').getPublicUrl(path)
-  const { error: dbErr } = await supabase.from('os_photos').insert({ os_id: osId, stage, url: data.publicUrl })
+  const form = new FormData()
+  form.append('foto', file, file.name)
+
+  const resp = await fetch(`${MIDIA_BASE}/upload/eletrica/${osId}/${stage}`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${MIDIA_TOKEN}` },
+    body: form
+  })
+
+  if (!resp.ok) {
+    const txt = await resp.text()
+    throw new Error('Upload falhou: ' + resp.status + ' ' + txt)
+  }
+
+  const json = await resp.json()
+  const newUrl = json.url
+
+  const { error: dbErr } = await supabase.from('os_photos').insert({ os_id: osId, stage, url: newUrl })
   if (dbErr) throw dbErr
-  return data.publicUrl
+
+  return newUrl
 }
 
 export async function deletePhoto(photoId, url) {
-  const path = url.split('/os-photos/')[1]
-  await supabase.storage.from('os-photos').remove([path])
+  // Foto nova (servidor de mídia VPS)
+  if (url && url.includes('media.aladim.digital/')) {
+    const pathPart = url.split('media.aladim.digital/')[1]
+    try {
+      await fetch(`${MIDIA_BASE}/foto/${pathPart}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${MIDIA_TOKEN}` }
+      })
+    } catch (e) {
+      console.warn('Falha ao deletar arquivo no VPS:', e.message)
+    }
+  // Foto antiga (Supabase Storage – não deve existir após migração, mas trata)
+  } else if (url && url.includes('/os-photos/')) {
+    const path = url.split('/os-photos/')[1]
+    try { await supabase.storage.from('os-photos').remove([path]) } catch (e) {}
+  }
+
   const { error } = await supabase.from('os_photos').delete().eq('id', photoId)
   if (error) throw error
 }
