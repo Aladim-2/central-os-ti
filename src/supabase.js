@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 
-const url  = import.meta.env.VITE_SUPABASE_URL
-const key  = import.meta.env.VITE_SUPABASE_ANON_KEY
+const url = import.meta.env.VITE_SUPABASE_URL
+const key = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 if (!url || !key) {
   console.error('Variáveis de ambiente do Supabase não configuradas. Verifique o arquivo .env')
@@ -10,6 +10,13 @@ if (!url || !key) {
 export const supabase = createClient(url, key, {
   auth: { persistSession: true, autoRefreshToken: true }
 })
+
+// ── Cliente admin (Service Role) — usado pelo UserManager ─────
+// Só funciona se VITE_SUPABASE_SERVICE_KEY estiver no .env do Vercel
+const serviceKey = import.meta.env.VITE_SUPABASE_SERVICE_KEY
+export const supabaseAdmin = serviceKey
+  ? createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })
+  : supabase  // fallback: usa o anon se a service key não estiver presente
 
 // ── Servidor de mídia (VPS aladim.digital) ───────────────────
 const MEDIA_URL   = 'https://media.aladim.digital'
@@ -75,6 +82,8 @@ export async function fetchOS(userId, role) {
 
   if (role === 'eletricista') {
     query = query.eq('electrician_id', userId)
+    // Esconde as arquivadas individualmente pelo eletricista
+    query = query.or('archived_by_electrician.is.null,archived_by_electrician.eq.false')
   }
 
   const { data, error } = await query
@@ -112,6 +121,54 @@ export async function addHistory(osId, status, byName, byId) {
   if (error) throw error
 }
 
+// ── Arquivamento individual (lado eletricista) ────────────────
+// Coluna: archived_by_electrician (boolean) na tabela service_orders
+
+export async function archiveOSByElectrician(osId) {
+  const { error } = await supabase
+    .from('service_orders')
+    .update({ archived_by_electrician: true })
+    .eq('id', osId)
+  if (error) throw error
+}
+
+export async function unarchiveOSByElectrician(osId) {
+  const { error } = await supabase
+    .from('service_orders')
+    .update({ archived_by_electrician: false })
+    .eq('id', osId)
+  if (error) throw error
+}
+
+export async function archiveAllCompletedByElectrician(electricianId) {
+  const { data, error } = await supabase
+    .from('service_orders')
+    .update({ archived_by_electrician: true })
+    .eq('electrician_id', electricianId)
+    .in('status', ['Concluída', 'Cancelada'])
+    .or('archived_by_electrician.is.null,archived_by_electrician.eq.false')
+    .select('id')
+  if (error) throw error
+  return data?.length || 0
+}
+
+export async function fetchArchivedOSByElectrician(electricianId) {
+  const { data, error } = await supabase
+    .from('service_orders')
+    .select(`
+      *,
+      location:locations(*),
+      electrician:profiles!electrician_id(*),
+      history:os_history(*),
+      photos:os_photos(*)
+    `)
+    .eq('electrician_id', electricianId)
+    .eq('archived_by_electrician', true)
+    .order('updated_at', { ascending: false })
+  if (error) throw error
+  return data || []
+}
+
 // ── Fotos (VPS media.aladim.digital) ──────────────────────────
 //
 // Upload: POST https://media.aladim.digital/upload/eletrica/<os_id>/<stage>
@@ -146,7 +203,6 @@ export async function uploadPhoto(osId, stage, file) {
     throw new Error('Resposta inválida do servidor de mídia')
   }
 
-  // Normaliza URL para absoluta caso o servidor devolva caminho relativo
   const finalUrl = data.url.startsWith('http')
     ? data.url
     : `${MEDIA_URL}${data.url.startsWith('/') ? '' : '/'}${data.url}`
@@ -160,11 +216,10 @@ export async function uploadPhoto(osId, stage, file) {
 }
 
 export async function deletePhoto(photoId, url) {
-  // 1) Remover arquivo físico do VPS (best-effort: não bloqueia se falhar)
+  // 1) Remover arquivo físico (best-effort: não bloqueia se falhar)
   try {
     if (url && url.includes('media.aladim.digital')) {
       const u = new URL(url)
-      // pathname vem como /eletrica/UUID/STAGE/arquivo.jpg
       await fetch(`${MEDIA_URL}/foto${u.pathname}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${MEDIA_TOKEN}` }
