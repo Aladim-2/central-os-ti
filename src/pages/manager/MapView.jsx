@@ -2,8 +2,11 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import { supabase as sb } from '../../supabase'
 
-const sbAdm = createClient(import.meta.env.VITE_SUPABASE_URL, import.meta.env.VITE_SUPABASE_SERVICE_KEY)
-  nao_iniciada:       { cor:'#9CA3AF', label:'Sem OS',            emoji:'ðŸ«' },
+const sbAdm = createClient(import.meta.env.VITE_SUPABASE_URL, 
+import.meta.env.VITE_SUPABASE_SERVICE_KEY)
+
+const STATUS_ESC = {  
+nao_iniciada:       { cor:'#9CA3AF', label:'Sem OS',            emoji:'ðŸ«' },
   programada:         { cor:'#3B82F6', label:'OS Aberta',         emoji:'ðŸ“‹' },
   em_execucao:        { cor:'#F59E0B', label:'Em execuÃ§Ã£o',       emoji:'âš¡' },
   aguardando_material:{ cor:'#EF4444', label:'Aguard. material',  emoji:'ðŸ“¦' },
