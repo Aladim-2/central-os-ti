@@ -2,27 +2,20 @@ import { createClient } from '@supabase/supabase-js'
 
 const url  = import.meta.env.VITE_SUPABASE_URL
 const key  = import.meta.env.VITE_SUPABASE_ANON_KEY
-const skey = import.meta.env.VITE_SUPABASE_SERVICE_KEY
 
-if (!url || !key) {
-  console.error('VariÃ¡veis de ambiente do Supabase nÃ£o configuradas. Verifique o arquivo .env')
-}
-
-// â”€â”€ Servidor de mÃ­dia (VPS aladim.digital) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const MIDIA_BASE  = 'https://media.aladim.digital'
 const MIDIA_TOKEN = 'aladim-midia-2026-token-temporario'
 
-// â”€â”€ InstÃ¢ncia compartilhada (anon) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+if (!url || !key) {
+  console.error('Variáveis de ambiente do Supabase não configuradas. Verifique o arquivo .env')
+}
+
+// Instância compartilhada (anon)
 export const supabase = createClient(url, key, {
   auth: { persistSession: true, autoRefreshToken: true }
 })
 
-// â”€â”€ InstÃ¢ncia admin (service role, sem persistÃªncia de sessÃ£o) â”€
-export const supabaseAdmin = createClient(url, skey, {
-  auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
-})
-
-// â”€â”€ Helpers de autenticaÃ§Ã£o â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Helpers de autenticação ──────────────────────────────────
 
 export async function signIn(email, password) {
   const { data, error } = await supabase.auth.signInWithPassword({ email, password })
@@ -45,7 +38,8 @@ export async function getProfile(userId) {
   return data
 }
 
-// â”€â”€ Locais â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Locais ───────────────────────────────────────────────────
+
 export async function fetchLocations() {
   const { data, error } = await supabase
     .from('locations')
@@ -54,7 +48,8 @@ export async function fetchLocations() {
   return (data || []).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
 }
 
-// â”€â”€ Eletricistas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Eletricistas (para o gestor) ─────────────────────────────
+
 export async function fetchElectricians() {
   const { data, error } = await supabase
     .from('profiles')
@@ -64,15 +59,24 @@ export async function fetchElectricians() {
   return (data || []).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
 }
 
-// â”€â”€ Ordens de ServiÃ§o â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Ordens de Serviço ─────────────────────────────────────────
+
 export async function fetchOS(userId, role) {
   let query = supabase
     .from('service_orders')
-    .select(`*, location:locations(*), electrician:profiles!electrician_id(*), history:os_history(*), photos:os_photos(*)`)
+    .select(`
+      *,
+      location:locations(*),
+      electrician:profiles!electrician_id(*),
+      history:os_history(*),
+      photos:os_photos(*)
+    `)
     .order('created_at', { ascending: false })
 
   if (role === 'eletricista') {
-    query = query.eq('electrician_id', userId)
+    query = query
+      .eq('electrician_id', userId)
+      .eq('archived_by_electrician', false)
   }
 
   const { data, error } = await query
@@ -81,50 +85,87 @@ export async function fetchOS(userId, role) {
 }
 
 export async function createOS(payload) {
-  const { data, error } = await supabase.from('service_orders').insert(payload).select().single()
+  const { data, error } = await supabase
+    .from('service_orders')
+    .insert(payload)
+    .select()
+    .single()
   if (error) throw error
   return data
 }
 
 export async function updateOS(id, updates) {
-  const { data, error } = await supabase.from('service_orders').update(updates).eq('id', id).select().single()
+  const { data, error } = await supabase
+    .from('service_orders')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single()
   if (error) throw error
   return data
 }
 
-// â”€â”€ HistÃ³rico â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Histórico ─────────────────────────────────────────────────
+
 export async function addHistory(osId, status, byName, byId) {
-  const { error } = await supabase.from('os_history').insert({ os_id: osId, status, by_name: byName, by_id: byId })
+  const { error } = await supabase
+    .from('os_history')
+    .insert({ os_id: osId, status, by_name: byName, by_id: byId })
   if (error) throw error
 }
 
-// â”€â”€ Fotos (upload via servidor de mÃ­dia VPS aladim.digital) â”€â”€
+// ── Fotos (upload no VPS aladim.digital) ─────────────────────
+
 export async function uploadPhoto(osId, stage, file) {
-  const form = new FormData()
-  form.append('foto', file, file.name)
-
-  const resp = await fetch(`${MIDIA_BASE}/upload/eletrica/${osId}/${stage}`, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${MIDIA_TOKEN}` },
-    body: form
-  })
-
-  if (!resp.ok) {
-    const txt = await resp.text()
-    throw new Error('Upload falhou: ' + resp.status + ' ' + txt)
+  if (!osId || !stage || !file) {
+    throw new Error('uploadPhoto: parâmetros faltando')
   }
 
-  const json = await resp.json()
-  const newUrl = json.url
+  const form = new FormData()
+  form.append('foto', file, file.name || `foto-${Date.now()}.jpg`)
 
-  const { error: dbErr } = await supabase.from('os_photos').insert({ os_id: osId, stage, url: newUrl })
+  let resp
+  try {
+    resp = await fetch(`${MIDIA_BASE}/upload/eletrica/${osId}/${stage}`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${MIDIA_TOKEN}` },
+      body: form
+    })
+  } catch (netErr) {
+    throw new Error(`Falha de rede ao enviar foto: ${netErr.message || 'sem conexão com servidor de mídia'}`)
+  }
+
+  if (!resp.ok) {
+    let detalhe = ''
+    try {
+      const erroBody = await resp.json()
+      detalhe = erroBody.erro || erroBody.error || erroBody.message || ''
+    } catch { /* ignora */ }
+    throw new Error(`Servidor recusou (${resp.status})${detalhe ? ': ' + detalhe : ''}`)
+  }
+
+  let dados
+  try {
+    dados = await resp.json()
+  } catch {
+    throw new Error('Resposta inválida do servidor de mídia')
+  }
+
+  if (!dados.url) {
+    throw new Error('Servidor não retornou a URL da foto')
+  }
+
+  const { error: dbErr } = await supabase
+    .from('os_photos')
+    .insert({ os_id: osId, stage, url: dados.url })
+
   if (dbErr) throw dbErr
 
-  return newUrl
+  return dados.url
 }
 
 export async function deletePhoto(photoId, url) {
-  // Foto nova (servidor de mÃ­dia VPS)
+  // Foto no VPS
   if (url && url.includes('media.aladim.digital/')) {
     const pathPart = url.split('media.aladim.digital/')[1]
     try {
@@ -135,8 +176,9 @@ export async function deletePhoto(photoId, url) {
     } catch (e) {
       console.warn('Falha ao deletar arquivo no VPS:', e.message)
     }
-  // Foto antiga (Supabase Storage â€“ nÃ£o deve existir apÃ³s migraÃ§Ã£o, mas trata)
-  } else if (url && url.includes('/os-photos/')) {
+  }
+  // Foto antiga (Supabase Storage) — fallback
+  else if (url && url.includes('/os-photos/')) {
     const path = url.split('/os-photos/')[1]
     try { await supabase.storage.from('os-photos').remove([path]) } catch (e) {}
   }
@@ -145,19 +187,26 @@ export async function deletePhoto(photoId, url) {
   if (error) throw error
 }
 
-// â”€â”€ Realtime subscription â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Realtime subscription ─────────────────────────────────────
+
 export function subscribeOS(userId, role, callback) {
   const channel = supabase
     .channel('os-changes')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'service_orders' }, (payload) => {
-      if (role === 'eletricista' && payload.new?.electrician_id !== userId) return
-      callback(payload)
-    })
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'service_orders' },
+      (payload) => {
+        if (role === 'eletricista' && payload.new?.electrician_id !== userId) return
+        callback(payload)
+      }
+    )
     .subscribe()
+
   return () => supabase.removeChannel(channel)
 }
 
-//  Arquivamento por eletricista 
+// ── Arquivamento por eletricista ──────────────────────────────
+
 export async function archiveOSByElectrician(osId) {
   const { data, error } = await supabase
     .from('service_orders')
