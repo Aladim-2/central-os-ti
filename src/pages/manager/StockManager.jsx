@@ -1,30 +1,28 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { supabase as sb } from '../../supabase' 
-
-const CATEGORIAS = [
-  'Cabos e Fios','Disjuntores','Quadros Elétricos','Eletrodutos',
-  'Eletrocalhas','Conexões','Tomadas e Interruptores','Iluminação',
-  'DPS e Proteção','Aterramento','Equipamentos','EPI','Fixação','Acessórios','Geral'
+import { supabase as sb } from '../../supabase'
+  'Cabos e Fios','Disjuntores','Quadros ElÃ©tricos','Eletrodutos',
+  'Eletrocalhas','ConexÃµes','Tomadas e Interruptores','IluminaÃ§Ã£o',
+  'DPS e ProteÃ§Ã£o','Aterramento','Equipamentos','EPI','FixaÃ§Ã£o','AcessÃ³rios','Geral'
 ]
 const CAT_FERRAMENTAS = [
-  'Ferramentas Manuais','Ferramentas Elétricas','Máquinas','Instrumentos de Medição',
-  'Equipamentos de Segurança','Escadas e Andaimes','Outros'
+  'Ferramentas Manuais','Ferramentas ElÃ©tricas','MÃ¡quinas','Instrumentos de MediÃ§Ã£o',
+  'Equipamentos de SeguranÃ§a','Escadas e Andaimes','Outros'
 ]
 const UNIDADES    = ['un','m','kg','cx','pct','rolo','l','par','jogo','kit']
-const ENTRY_TYPES = ['Compra','Doação','Transferência']
-const EXIT_TYPES  = ['Uso em obra','Manutenção','Perda','Transferência','Empréstimo']
+const ENTRY_TYPES = ['Compra','DoaÃ§Ã£o','TransferÃªncia']
+const EXIT_TYPES  = ['Uso em obra','ManutenÃ§Ã£o','Perda','TransferÃªncia','EmprÃ©stimo']
 
 function hoje() { return new Date().toISOString().split('T')[0] }
-function fmtDate(d) { if (!d) return '—'; const [y,m,di] = (d.split('T')[0]).split('-'); return `${di}/${m}/${y}` }
-function fmtMoney(v) { return v != null ? 'R$ ' + Number(v).toFixed(2).replace('.',',') : '—' }
+function fmtDate(d) { if (!d) return 'â€”'; const [y,m,di] = (d.split('T')[0]).split('-'); return `${di}/${m}/${y}` }
+function fmtMoney(v) { return v != null ? 'R$ ' + Number(v).toFixed(2).replace('.',',') : 'â€”' }
 
 function StatusBadge({ item }) {
   const qty = item.quantity || 0
   const min = item.min_quantity || 0
-  if (qty <= 0)                        return <span style={ST.badge('#DC2626','#FEE2E2')}>🔴 Zerado</span>
-  if (min > 0 && qty <= min * 0.5)     return <span style={ST.badge('#C2410C','#FFF7ED')}>🟠 Crítico</span>
-  if (min > 0 && qty <= min)           return <span style={ST.badge('#D97706','#FFFBEB')}>🟡 Baixo</span>
-  return <span style={ST.badge('#065F46','#D1FAE5')}>🟢 Normal</span>
+  if (qty <= 0)                        return <span style={ST.badge('#DC2626','#FEE2E2')}>ðŸ”´ Zerado</span>
+  if (min > 0 && qty <= min * 0.5)     return <span style={ST.badge('#C2410C','#FFF7ED')}>ðŸŸ  CrÃ­tico</span>
+  if (min > 0 && qty <= min)           return <span style={ST.badge('#D97706','#FFFBEB')}>ðŸŸ¡ Baixo</span>
+  return <span style={ST.badge('#065F46','#D1FAE5')}>ðŸŸ¢ Normal</span>
 }
 
 const ST = {
@@ -48,7 +46,7 @@ function NovoItemInline({ cats, onCriado, onCancelar }) {
   const set = (k,v) => setF(p => ({...p,[k]:v}))
 
   async function criar() {
-    if (!f.description.trim()) { setErr('Informe a descrição.'); return }
+    if (!f.description.trim()) { setErr('Informe a descriÃ§Ã£o.'); return }
     setSaving(true)
     try {
       const { data, error } = await sb.from('stock_items').insert({
@@ -63,12 +61,12 @@ function NovoItemInline({ cats, onCriado, onCancelar }) {
 
   return (
     <div style={{ background:'#FFFBEB', border:'1px solid #FCD34D', borderRadius:8, padding:'12px 14px', marginTop:8 }}>
-      <p style={{ fontSize:12, fontWeight:600, color:'#92400E', marginBottom:10 }}>➕ Cadastrar novo item</p>
+      <p style={{ fontSize:12, fontWeight:600, color:'#92400E', marginBottom:10 }}>âž• Cadastrar novo item</p>
       <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr 1fr', gap:8, marginBottom:8 }}>
         <div>
-          <label style={ST.label}>Descrição *</label>
+          <label style={ST.label}>DescriÃ§Ã£o *</label>
           <input value={f.description} onChange={e => set('description',e.target.value)}
-            placeholder="Ex: Cabo 2,5mm² Flexível" style={ST.input} autoFocus />
+            placeholder="Ex: Cabo 2,5mmÂ² FlexÃ­vel" style={ST.input} autoFocus />
         </div>
         <div>
           <label style={ST.label}>Unidade</label>
@@ -77,7 +75,7 @@ function NovoItemInline({ cats, onCriado, onCancelar }) {
           </select>
         </div>
         <div>
-          <label style={ST.label}>Estoque mínimo</label>
+          <label style={ST.label}>Estoque mÃ­nimo</label>
           <input type="number" value={f.min_quantity} onChange={e => set('min_quantity',e.target.value)} min="0" style={ST.input} />
         </div>
       </div>
@@ -92,7 +90,7 @@ function NovoItemInline({ cats, onCriado, onCancelar }) {
         <button onClick={onCancelar} style={ST.btn()}>Cancelar</button>
         <button onClick={criar} disabled={saving}
           style={{ ...ST.btnP, background:'#D97706', fontSize:12, padding:'6px 16px', opacity:saving?.6:1 }}>
-          {saving ? 'Salvando...' : '✓ Criar e selecionar'}
+          {saving ? 'Salvando...' : 'âœ“ Criar e selecionar'}
         </button>
       </div>
     </div>
@@ -119,7 +117,7 @@ function LinhaItem({ linha, idx, items, cats, onSet, onRem, cols, showPrice }) {
               style={{ ...ST.input, flex:1 }}>
               <option value="">Selecione o material...</option>
               {cols === 'saida'
-                ? items.filter(i => (i.quantity||0) > 0).map(i => <option key={i.id} value={i.id}>{i.description} — saldo: {i.quantity} {i.unit}</option>)
+                ? items.filter(i => (i.quantity||0) > 0).map(i => <option key={i.id} value={i.id}>{i.description} â€” saldo: {i.quantity} {i.unit}</option>)
                 : items.map(i => <option key={i.id} value={i.id}>{i.description} ({i.unit})</option>)
               }
             </select>
@@ -128,10 +126,10 @@ function LinhaItem({ linha, idx, items, cats, onSet, onRem, cols, showPrice }) {
               title="Cadastrar novo item"
               style={{ flexShrink:0, padding:'6px 10px', borderRadius:8, border:'0.5px solid #FCD34D',
                 background: showNovo ? '#FCD34D' : '#FFFBEB', color:'#92400E', cursor:'pointer', fontSize:16, fontWeight:700 }}>
-              ＋
+              ï¼‹
             </button>
           </div>
-          {semSaldo && <p style={{ fontSize:11, color:'#DC2626', marginTop:2 }}>⚠ Saldo insuficiente</p>}
+          {semSaldo && <p style={{ fontSize:11, color:'#DC2626', marginTop:2 }}>âš  Saldo insuficiente</p>}
         </div>
 
         <input type="number" value={linha.qty}
@@ -148,7 +146,7 @@ function LinhaItem({ linha, idx, items, cats, onSet, onRem, cols, showPrice }) {
         </>}
 
         <button onClick={() => onRem(idx)}
-          style={{ borderRadius:8, border:'0.5px solid #FCA5A5', background:'#FEE2E2', color:'#991B1B', cursor:'pointer', fontSize:16 }}>✕</button>
+          style={{ borderRadius:8, border:'0.5px solid #FCA5A5', background:'#FEE2E2', color:'#991B1B', cursor:'pointer', fontSize:16 }}>âœ•</button>
       </div>
 
       {showNovo && (
@@ -205,13 +203,13 @@ export default function StockManager({ profile, osList, itemsExt, movsExt, onRel
   const itensBaixos  = itemsMat.filter(i => i.quantity > 0 && i.min_quantity > 0 && i.quantity <= i.min_quantity).length
 
   const TABS = [
-    { id:'estoque',    label:'📊 Estoque Atual' },
-    { id:'entrada',    label:'📥 Entrada' },
-    { id:'saida',      label:'📤 Saída' },
-    { id:'ferramentas',label:'🔧 Ferramentas e Máquinas' },
-    { id:'nfs',        label:'📁 Notas Fiscais' },
-    { id:'historico',  label:'📋 Histórico' },
-    { id:'cadastro',   label:'⚙️ Itens' },
+    { id:'estoque',    label:'ðŸ“Š Estoque Atual' },
+    { id:'entrada',    label:'ðŸ“¥ Entrada' },
+    { id:'saida',      label:'ðŸ“¤ SaÃ­da' },
+    { id:'ferramentas',label:'ðŸ”§ Ferramentas e MÃ¡quinas' },
+    { id:'nfs',        label:'ðŸ“ Notas Fiscais' },
+    { id:'historico',  label:'ðŸ“‹ HistÃ³rico' },
+    { id:'cadastro',   label:'âš™ï¸ Itens' },
   ]
 
   const sharedProps = { items, profile, sb, onSaved:load, showMsg, showErr, saving, setSaving, locs }
@@ -219,14 +217,14 @@ export default function StockManager({ profile, osList, itemsExt, movsExt, onRel
   return (
     <div style={{ maxWidth:960 }}>
       <div style={{ marginBottom:'1.2rem' }}>
-        <h1 style={{ fontSize:20, fontWeight:500, marginBottom:2 }}>📦 Estoque Elétrico</h1>
-        <p style={{ fontSize:13, color:'#888780' }}>Almoxarifado técnico — materiais elétricos</p>
+        <h1 style={{ fontSize:20, fontWeight:500, marginBottom:2 }}>ðŸ“¦ Estoque ElÃ©trico</h1>
+        <p style={{ fontSize:13, color:'#888780' }}>Almoxarifado tÃ©cnico â€” materiais elÃ©tricos</p>
       </div>
 
       <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginBottom:'1.2rem' }}>
         {[
           { label:'Total de itens',  val:totalItens,   c:'#111',    bg:'#f5f5f4' },
-          { label:'Disponíveis',     val:itensDisp,    c:'#065F46', bg:'#D1FAE5' },
+          { label:'DisponÃ­veis',     val:itensDisp,    c:'#065F46', bg:'#D1FAE5' },
           { label:'Estoque baixo',   val:itensBaixos,  c:'#D97706', bg:'#FFFBEB' },
           { label:'Zerados',         val:itensZerados, c:'#DC2626', bg:'#FEE2E2' },
         ].map(m => (
@@ -237,8 +235,8 @@ export default function StockManager({ profile, osList, itemsExt, movsExt, onRel
         ))}
       </div>
 
-      {msg && <div style={{ background:'#D1FAE5', border:'0.5px solid #6EE7B7', borderRadius:8, padding:'10px 14px', marginBottom:10, fontSize:13, color:'#065F46' }}>✓ {msg}</div>}
-      {err && <div style={{ background:'#FEE2E2', border:'0.5px solid #FCA5A5', borderRadius:8, padding:'10px 14px', marginBottom:10, fontSize:13, color:'#991B1B' }}>⚠ {err}</div>}
+      {msg && <div style={{ background:'#D1FAE5', border:'0.5px solid #6EE7B7', borderRadius:8, padding:'10px 14px', marginBottom:10, fontSize:13, color:'#065F46' }}>âœ“ {msg}</div>}
+      {err && <div style={{ background:'#FEE2E2', border:'0.5px solid #FCA5A5', borderRadius:8, padding:'10px 14px', marginBottom:10, fontSize:13, color:'#991B1B' }}>âš  {err}</div>}
 
       <div style={{ display:'flex', flexWrap:'wrap', borderBottom:'0.5px solid #e5e3dc', marginBottom:'1.2rem' }}>
         {TABS.map(t => <button key={t.id} onClick={() => setTab(t.id)} style={ST.tab(tab === t.id)}>{t.label}</button>)}
@@ -249,8 +247,8 @@ export default function StockManager({ profile, osList, itemsExt, movsExt, onRel
       {!loading && (
         <>
           {tab === 'estoque'    && <TabEstoque   items={itemsMat} movs={movs} osList={osList} canExportPDF={canExportPDF} />}
-          {tab === 'entrada'    && <TabEntrada   {...sharedProps} items={itemsMat} cats={CATEGORIAS} titulo="📥 Entrada de Material" cor="#1A478A" />}
-          {tab === 'saida'      && <TabSaida     {...sharedProps} items={itemsMat} cats={CATEGORIAS} titulo="📤 Saída de Material" cor="#C2410C" />}
+          {tab === 'entrada'    && <TabEntrada   {...sharedProps} items={itemsMat} cats={CATEGORIAS} titulo="ðŸ“¥ Entrada de Material" cor="#1A478A" />}
+          {tab === 'saida'      && <TabSaida     {...sharedProps} items={itemsMat} cats={CATEGORIAS} titulo="ðŸ“¤ SaÃ­da de Material" cor="#C2410C" />}
           {tab === 'ferramentas'&& <TabFerramentas {...sharedProps} itemsFerr={itemsFerr} movs={movs} />}
           {tab === 'nfs'        && <TabNFs       movs={movs} />}
           {tab === 'historico'  && <TabHistorico movs={movs} items={items} />}
@@ -273,7 +271,7 @@ function TabEstoque({ items, movs, osList, canExportPDF }) {
     const qty = i.quantity||0, min = i.min_quantity||0
     if (stFil==='Normal'  && !(qty>min&&min>0||qty>0&&min===0)) return false
     if (stFil==='Baixo'   && !(qty>0&&min>0&&qty<=min))          return false
-    if (stFil==='Crítico' && !(qty>0&&min>0&&qty<=min*.5))       return false
+    if (stFil==='CrÃ­tico' && !(qty>0&&min>0&&qty<=min*.5))       return false
     if (stFil==='Zerado'  && qty>0)                               return false
     return true
   }), [items, search, catFil, stFil])
@@ -296,18 +294,18 @@ function TabEstoque({ items, movs, osList, canExportPDF }) {
           <option>Todas</option>{CATEGORIAS.map(c=><option key={c}>{c}</option>)}
         </select>
         <select value={stFil} onChange={e=>setStFil(e.target.value)} style={{ padding:'8px 10px', borderRadius:8, border:'0.5px solid #e5e3dc', fontSize:13 }}>
-          {['Todos','Normal','Baixo','Crítico','Zerado'].map(s=><option key={s}>{s}</option>)}
+          {['Todos','Normal','Baixo','CrÃ­tico','Zerado'].map(s=><option key={s}>{s}</option>)}
         </select>
-        {canExportPDF && <button onClick={()=>exportarEstoque(filtered)} style={ST.btn()}>📄 Exportar PDF</button>}
+        {canExportPDF && <button onClick={()=>exportarEstoque(filtered)} style={ST.btn()}>ðŸ“„ Exportar PDF</button>}
       </div>
 
       {ranking.length > 0 && (
         <div style={{ ...ST.card, background:'#FFFBEB', border:'0.5px solid #FCD34D', marginBottom:14 }}>
-          <p style={{ fontSize:12, fontWeight:600, color:'#92400E', marginBottom:10 }}>🏆 Top 5 — Mais consumidos</p>
+          <p style={{ fontSize:12, fontWeight:600, color:'#92400E', marginBottom:10 }}>ðŸ† Top 5 â€” Mais consumidos</p>
           <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
             {ranking.map((r,i)=>(
               <div key={i} style={{ background:'#fff', borderRadius:8, padding:'6px 12px', border:'0.5px solid #FCD34D', fontSize:12 }}>
-                <span style={{ fontWeight:700, color:'#D97706', marginRight:6 }}>#{i+1}</span>{r.name} — <strong>{r.total}</strong> un.
+                <span style={{ fontWeight:700, color:'#D97706', marginRight:6 }}>#{i+1}</span>{r.name} â€” <strong>{r.total}</strong> un.
               </div>
             ))}
           </div>
@@ -318,7 +316,7 @@ function TabEstoque({ items, movs, osList, canExportPDF }) {
         <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
           <thead>
             <tr style={{ background:'#f1efe8' }}>
-              {['Categoria','Material','Qtd Atual','Unidade','Est. Mín.','Status'].map(h=>(
+              {['Categoria','Material','Qtd Atual','Unidade','Est. MÃ­n.','Status'].map(h=>(
                 <th key={h} style={{ padding:'8px 12px', textAlign:'left', fontWeight:600, fontSize:12, color:'#555', borderBottom:'0.5px solid #e5e3dc' }}>{h}</th>
               ))}
             </tr>
@@ -333,7 +331,7 @@ function TabEstoque({ items, movs, osList, canExportPDF }) {
                 <td style={{ padding:'9px 12px', fontWeight:500 }}>{item.description}</td>
                 <td style={{ padding:'9px 12px', fontWeight:700, fontSize:15, color:(item.quantity||0)<=0?'#DC2626':'#111' }}>{item.quantity??0}</td>
                 <td style={{ padding:'9px 12px', color:'#888' }}>{item.unit}</td>
-                <td style={{ padding:'9px 12px', color:'#888' }}>{item.min_quantity||'—'}</td>
+                <td style={{ padding:'9px 12px', color:'#888' }}>{item.min_quantity||'â€”'}</td>
                 <td style={{ padding:'9px 12px' }}><StatusBadge item={item} /></td>
               </tr>
             ))}
@@ -354,21 +352,21 @@ function HistoricoItem({ item, movs, onClose }) {
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
         <div>
           <p style={{ fontWeight:600, fontSize:15, color:'#065F46' }}>{item.description}</p>
-          <p style={{ fontSize:12, color:'#888', marginTop:2 }}>{item.category} · {item.unit}</p>
+          <p style={{ fontSize:12, color:'#888', marginTop:2 }}>{item.category} Â· {item.unit}</p>
         </div>
-        <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:'#888' }}>✕</button>
+        <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:'#888' }}>âœ•</button>
       </div>
       <div style={{ display:'flex', gap:16, marginBottom:14, fontSize:13 }}>
-        <span style={{ color:'#065F46', fontWeight:600 }}>📥 {entradas}</span>
-        <span style={{ color:'#C2410C', fontWeight:600 }}>📤 {saidas}</span>
-        <span style={{ fontWeight:700 }}>📦 Saldo: {item.quantity??0} {item.unit}</span>
+        <span style={{ color:'#065F46', fontWeight:600 }}>ðŸ“¥ {entradas}</span>
+        <span style={{ color:'#C2410C', fontWeight:600 }}>ðŸ“¤ {saidas}</span>
+        <span style={{ fontWeight:700 }}>ðŸ“¦ Saldo: {item.quantity??0} {item.unit}</span>
       </div>
       <div style={{ maxHeight:200, overflowY:'auto' }}>
         {hist.map((m,i)=>(
           <div key={i} style={{ display:'flex', gap:12, padding:'6px 0', borderBottom:'0.5px solid #d1fae5', fontSize:12 }}>
-            <span style={{ color:m.type==='entrada'?'#065F46':'#C2410C', fontWeight:700, minWidth:60 }}>{m.type==='entrada'?'▲ Entr.':'▼ Saída'}</span>
+            <span style={{ color:m.type==='entrada'?'#065F46':'#C2410C', fontWeight:700, minWidth:60 }}>{m.type==='entrada'?'â–² Entr.':'â–¼ SaÃ­da'}</span>
             <span style={{ fontWeight:600, minWidth:40 }}>{m.quantity}</span>
-            <span style={{ color:'#888', flex:1 }}>{m.destination||m.supplier||m.notes||'—'}</span>
+            <span style={{ color:'#888', flex:1 }}>{m.destination||m.supplier||m.notes||'â€”'}</span>
             <span style={{ color:'#aaa', minWidth:80 }}>{fmtDate(m.mov_date||m.created_at)}</span>
           </div>
         ))}
@@ -383,15 +381,15 @@ function exportarEstoque(items) {
     <td style="padding:6px 10px;border:0.5px solid #ddd;font-weight:500">${i.description}</td>
     <td style="padding:6px 10px;border:0.5px solid #ddd;text-align:center;font-weight:700">${i.quantity??0}</td>
     <td style="padding:6px 10px;border:0.5px solid #ddd;text-align:center">${i.unit}</td>
-    <td style="padding:6px 10px;border:0.5px solid #ddd;text-align:center">${i.min_quantity||'—'}</td>
+    <td style="padding:6px 10px;border:0.5px solid #ddd;text-align:center">${i.min_quantity||'â€”'}</td>
     <td style="padding:6px 10px;border:0.5px solid #ddd;text-align:center;font-weight:600;color:${(i.quantity||0)<=0?'#DC2626':(i.min_quantity&&(i.quantity||0)<=i.min_quantity)?'#D97706':'#065F46'}">
       ${(i.quantity||0)<=0?'ZERADO':(i.min_quantity&&(i.quantity||0)<=i.min_quantity)?'BAIXO':'NORMAL'}
     </td></tr>`).join('')
   const html = `<html><head><meta charset="UTF-8"><style>body{font-family:Arial,sans-serif;margin:30px}h2{color:#1A478A}table{width:100%;border-collapse:collapse}th{background:#1A478A;color:#fff;padding:8px 10px;font-size:12px;text-align:left}td{font-size:12px}</style></head><body>
-    <h2>📦 Relatório de Estoque Elétrico</h2>
-    <p style="font-size:12px;color:#666">SEMED Itabuna/BA · ${new Date().toLocaleString('pt-BR')}</p>
-    <p style="font-size:12px">Eng. Valter Alves — CREA 0519903544/D</p><br>
-    <table><thead><tr><th>Categoria</th><th>Material</th><th>Qtd</th><th>Unid.</th><th>Mínimo</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></body></html>`
+    <h2>ðŸ“¦ RelatÃ³rio de Estoque ElÃ©trico</h2>
+    <p style="font-size:12px;color:#666">SEMED Itabuna/BA Â· ${new Date().toLocaleString('pt-BR')}</p>
+    <p style="font-size:12px">Eng. Valter Alves â€” CREA 0519903544/D</p><br>
+    <table><thead><tr><th>Categoria</th><th>Material</th><th>Qtd</th><th>Unid.</th><th>MÃ­nimo</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></body></html>`
   const w = window.open('','_blank'); w.document.write(html); w.document.close(); w.print()
 }
 
@@ -440,7 +438,7 @@ function TabEntrada({ items, cats, profile, sb, onSaved, showMsg, showErr, savin
         })
         await sb.from('stock_items').update({quantity:(item.quantity||0)+qty}).eq('id',l.item_id)
       }
-      showMsg(`Entrada registrada — ${validas.length} item(ns).`)
+      showMsg(`Entrada registrada â€” ${validas.length} item(ns).`)
       setLinhas([{item_id:'',qty:'',unit_price:'',total_price:''}])
       setForm({mov_date:hoje(),entry_type:'Compra',supplier:'',nf_number:'',received_by:profile?.name||'',notes:''})
       setNfFile(null); onSaved()
@@ -449,7 +447,7 @@ function TabEntrada({ items, cats, profile, sb, onSaved, showMsg, showErr, savin
 
   return (
     <div>
-      <h2 style={{ fontSize:16, fontWeight:600, color:cor||'#1A478A', marginBottom:14 }}>{titulo||'📥 Entrada de Material'}</h2>
+      <h2 style={{ fontSize:16, fontWeight:600, color:cor||'#1A478A', marginBottom:14 }}>{titulo||'ðŸ“¥ Entrada de Material'}</h2>
       <div style={ST.card}>
         <div style={ST.grid3}>
           <div><label style={ST.label}>Data *</label><input type="date" value={form.mov_date} onChange={e=>setF('mov_date',e.target.value)} style={ST.input} /></div>
@@ -459,13 +457,13 @@ function TabEntrada({ items, cats, profile, sb, onSaved, showMsg, showErr, savin
             </select>
           </div>
           <div><label style={ST.label}>Fornecedor</label><input value={form.supplier} onChange={e=>setF('supplier',e.target.value)} placeholder="Nome do fornecedor" style={ST.input} /></div>
-          <div><label style={ST.label}>Nº Nota Fiscal</label><input value={form.nf_number} onChange={e=>setF('nf_number',e.target.value)} placeholder="000123" style={ST.input} /></div>
+          <div><label style={ST.label}>NÂº Nota Fiscal</label><input value={form.nf_number} onChange={e=>setF('nf_number',e.target.value)} placeholder="000123" style={ST.input} /></div>
           <div>
             <label style={ST.label}>Upload NF (PDF/Excel)</label>
             <input type="file" accept=".pdf,.xlsx,.xls" onChange={e=>setNfFile(e.target.files[0])} style={{ fontSize:12, padding:'6px 0' }} />
-            {nfFile && <p style={{ fontSize:11, color:'#065F46', marginTop:3 }}>✓ {nfFile.name}</p>}
+            {nfFile && <p style={{ fontSize:11, color:'#065F46', marginTop:3 }}>âœ“ {nfFile.name}</p>}
           </div>
-          <div><label style={ST.label}>Responsável</label><input value={form.received_by} onChange={e=>setF('received_by',e.target.value)} style={ST.input} /></div>
+          <div><label style={ST.label}>ResponsÃ¡vel</label><input value={form.received_by} onChange={e=>setF('received_by',e.target.value)} style={ST.input} /></div>
         </div>
 
         <div style={{ marginTop:16 }}>
@@ -481,13 +479,13 @@ function TabEntrada({ items, cats, profile, sb, onSaved, showMsg, showErr, savin
         </div>
 
         <div style={{ marginTop:12 }}>
-          <label style={ST.label}>Observações</label>
+          <label style={ST.label}>ObservaÃ§Ãµes</label>
           <textarea value={form.notes} onChange={e=>setF('notes',e.target.value)} rows={2}
-            placeholder="Observações sobre o recebimento..." style={{ ...ST.input, resize:'vertical' }} />
+            placeholder="ObservaÃ§Ãµes sobre o recebimento..." style={{ ...ST.input, resize:'vertical' }} />
         </div>
         <div style={{ display:'flex', justifyContent:'flex-end', marginTop:14 }}>
           <button onClick={salvar} disabled={saving} style={{ ...ST.btnP, opacity:saving?.6:1 }}>
-            {saving?'Salvando...':'✓ Registrar entrada'}
+            {saving?'Salvando...':'âœ“ Registrar entrada'}
           </button>
         </div>
       </div>
@@ -534,7 +532,7 @@ function TabSaida({ items, cats, locs, profile, sb, onSaved, showMsg, showErr, s
     for(const l of validas){
       const item=localItems.find(i=>i.id===l.item_id)
       if(item&&(item.quantity||0)<parseFloat(l.qty)){
-        showErr(`Saldo insuficiente: ${item.description} — disponível: ${item.quantity} ${item.unit}`); return
+        showErr(`Saldo insuficiente: ${item.description} â€” disponÃ­vel: ${item.quantity} ${item.unit}`); return
       }
     }
     setSaving(true)
@@ -550,7 +548,7 @@ function TabSaida({ items, cats, locs, profile, sb, onSaved, showMsg, showErr, s
         })
         await sb.from('stock_items').update({quantity:Math.max(0,(item.quantity||0)-qty)}).eq('id',l.item_id)
       }
-      showMsg(`Saída registrada — ${validas.length} item(ns).`)
+      showMsg(`SaÃ­da registrada â€” ${validas.length} item(ns).`)
       setLinhas([{item_id:'',qty:''}])
       setForm({mov_date:hoje(),exit_type:'Uso em obra',destination:'',requester:'',released_by:profile?.name||'',notes:''})
       setLocSearch(''); setLocOpen(false)
@@ -560,7 +558,7 @@ function TabSaida({ items, cats, locs, profile, sb, onSaved, showMsg, showErr, s
 
   return (
     <div>
-      <h2 style={{ fontSize:16, fontWeight:600, color:cor||'#C2410C', marginBottom:14 }}>{titulo||'📤 Saída de Material'}</h2>
+      <h2 style={{ fontSize:16, fontWeight:600, color:cor||'#C2410C', marginBottom:14 }}>{titulo||'ðŸ“¤ SaÃ­da de Material'}</h2>
       <div style={ST.card}>
         <div style={ST.grid3}>
           <div><label style={ST.label}>Data *</label><input type="date" value={form.mov_date} onChange={e=>setF('mov_date',e.target.value)} style={ST.input} /></div>
@@ -570,7 +568,7 @@ function TabSaida({ items, cats, locs, profile, sb, onSaved, showMsg, showErr, s
             </select>
           </div>
 
-          {/* Destino — autocomplete de escola */}
+          {/* Destino â€” autocomplete de escola */}
           <div style={{ position:'relative' }}>
             <label style={ST.label}>Escola de destino *</label>
             <div style={{ position:'relative' }}>
@@ -584,8 +582,8 @@ function TabSaida({ items, cats, locs, profile, sb, onSaved, showMsg, showErr, s
                 style={{ ...ST.input, borderColor: form.destination ? '#1D9E75' : '#e5e3dc', paddingRight:30 }}
               />
               {form.destination
-                ? <button onClick={()=>{ setF('destination',''); setLocSearch(''); }} style={{ position:'absolute',right:8,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',fontSize:13,color:'#aaa',padding:0 }}>✕</button>
-                : <span style={{ position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',fontSize:13,color:'#aaa',pointerEvents:'none' }}>🔍</span>
+                ? <button onClick={()=>{ setF('destination',''); setLocSearch(''); }} style={{ position:'absolute',right:8,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',fontSize:13,color:'#aaa',padding:0 }}>âœ•</button>
+                : <span style={{ position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',fontSize:13,color:'#aaa',pointerEvents:'none' }}>ðŸ”</span>
               }
             </div>
             {locOpen && locsFiltered.length > 0 && (
@@ -603,7 +601,7 @@ function TabSaida({ items, cats, locs, profile, sb, onSaved, showMsg, showErr, s
           </div>
 
           <div><label style={ST.label}>Solicitante</label><input value={form.requester} onChange={e=>setF('requester',e.target.value)} placeholder="Nome" style={ST.input} /></div>
-          <div><label style={ST.label}>Responsável pela liberação</label><input value={form.released_by} onChange={e=>setF('released_by',e.target.value)} style={ST.input} /></div>
+          <div><label style={ST.label}>ResponsÃ¡vel pela liberaÃ§Ã£o</label><input value={form.released_by} onChange={e=>setF('released_by',e.target.value)} style={ST.input} /></div>
         </div>
 
         <div style={{ marginTop:16 }}>
@@ -619,13 +617,13 @@ function TabSaida({ items, cats, locs, profile, sb, onSaved, showMsg, showErr, s
         </div>
 
         <div style={{ marginTop:12 }}>
-          <label style={ST.label}>Observações</label>
+          <label style={ST.label}>ObservaÃ§Ãµes</label>
           <textarea value={form.notes} onChange={e=>setF('notes',e.target.value)} rows={2}
-            placeholder="Serviço, OS relacionada..." style={{ ...ST.input, resize:'vertical' }} />
+            placeholder="ServiÃ§o, OS relacionada..." style={{ ...ST.input, resize:'vertical' }} />
         </div>
         <div style={{ display:'flex', justifyContent:'flex-end', marginTop:14 }}>
           <button onClick={salvar} disabled={saving} style={{ ...ST.btnP, background:'#C2410C', opacity:saving?.6:1 }}>
-            {saving?'Salvando...':'✓ Registrar saída'}
+            {saving?'Salvando...':'âœ“ Registrar saÃ­da'}
           </button>
         </div>
       </div>
@@ -643,11 +641,11 @@ function TabFerramentas({ itemsFerr, movs, profile, sb, onSaved, showMsg, showEr
 
   return (
     <div>
-      <h2 style={{ fontSize:16, fontWeight:600, color:'#6D28D9', marginBottom:14 }}>🔧 Ferramentas e Máquinas</h2>
+      <h2 style={{ fontSize:16, fontWeight:600, color:'#6D28D9', marginBottom:14 }}>ðŸ”§ Ferramentas e MÃ¡quinas</h2>
       <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:14 }}>
         {[
           {label:'Total',      val:itemsFerr.length, c:'#111',    bg:'#f5f5f4'},
-          {label:'Disponíveis',val:dispFerr,          c:'#065F46', bg:'#D1FAE5'},
+          {label:'DisponÃ­veis',val:dispFerr,          c:'#065F46', bg:'#D1FAE5'},
           {label:'Zerados',    val:zeroFerr,          c:'#DC2626', bg:'#FEE2E2'},
         ].map(m=>(
           <div key={m.label} style={{ background:m.bg, borderRadius:8, padding:'10px 14px' }}>
@@ -658,10 +656,10 @@ function TabFerramentas({ itemsFerr, movs, profile, sb, onSaved, showMsg, showEr
       </div>
       <div style={{ display:'flex', gap:4, borderBottom:'0.5px solid #e5e3dc', marginBottom:14 }}>
         {[
-          {id:'lista',   label:'📋 Inventário'},
-          {id:'entrada', label:'📥 Entrada'},
-          {id:'saida',   label:'📤 Saída / Empréstimo'},
-          {id:'hist',    label:'📋 Histórico'},
+          {id:'lista',   label:'ðŸ“‹ InventÃ¡rio'},
+          {id:'entrada', label:'ðŸ“¥ Entrada'},
+          {id:'saida',   label:'ðŸ“¤ SaÃ­da / EmprÃ©stimo'},
+          {id:'hist',    label:'ðŸ“‹ HistÃ³rico'},
         ].map(t=>(
           <button key={t.id} onClick={()=>setSub(t.id)} style={ST.tab(sub===t.id)}>{t.label}</button>
         ))}
@@ -671,7 +669,7 @@ function TabFerramentas({ itemsFerr, movs, profile, sb, onSaved, showMsg, showEr
           {itemsFerr.length===0 && <div style={{ ...ST.card, textAlign:'center', color:'#888', padding:'2rem' }}>Nenhuma ferramenta cadastrada.</div>}
           <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
             <thead><tr style={{ background:'#F5F3FF' }}>
-              {['Categoria','Descrição','Qtd','Unid.','Status'].map(h=>(
+              {['Categoria','DescriÃ§Ã£o','Qtd','Unid.','Status'].map(h=>(
                 <th key={h} style={{ padding:'8px 12px', textAlign:'left', fontWeight:600, fontSize:12, color:'#4C1D95', borderBottom:'0.5px solid #DDD6FE' }}>{h}</th>
               ))}
             </tr></thead>
@@ -689,14 +687,14 @@ function TabFerramentas({ itemsFerr, movs, profile, sb, onSaved, showMsg, showEr
           </table>
         </div>
       )}
-      {sub==='entrada' && <TabEntrada {...sharedProps} titulo="📥 Entrada de Ferramentas / Máquinas" cor="#6D28D9" />}
-      {sub==='saida'   && <TabSaida   {...sharedProps} titulo="📤 Saída / Empréstimo de Ferramentas" cor="#6D28D9" />}
+      {sub==='entrada' && <TabEntrada {...sharedProps} titulo="ðŸ“¥ Entrada de Ferramentas / MÃ¡quinas" cor="#6D28D9" />}
+      {sub==='saida'   && <TabSaida   {...sharedProps} titulo="ðŸ“¤ SaÃ­da / EmprÃ©stimo de Ferramentas" cor="#6D28D9" />}
       {sub==='hist' && (
         <div style={{ overflowX:'auto' }}>
-          {movsFerr.length===0 && <p style={{ color:'#888', fontSize:13 }}>Nenhuma movimentação registrada.</p>}
+          {movsFerr.length===0 && <p style={{ color:'#888', fontSize:13 }}>Nenhuma movimentaÃ§Ã£o registrada.</p>}
           <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
             <thead><tr style={{ background:'#F5F3FF' }}>
-              {['Data','Tipo','Item','Qtd','Destino/Fornec.','Responsável'].map(h=>(
+              {['Data','Tipo','Item','Qtd','Destino/Fornec.','ResponsÃ¡vel'].map(h=>(
                 <th key={h} style={{ padding:'8px 10px', textAlign:'left', fontWeight:600, color:'#4C1D95', borderBottom:'0.5px solid #DDD6FE' }}>{h}</th>
               ))}
             </tr></thead>
@@ -704,11 +702,11 @@ function TabFerramentas({ itemsFerr, movs, profile, sb, onSaved, showMsg, showEr
               {movsFerr.map((m,i)=>(
                 <tr key={m.id||i} style={{ background:i%2===0?'#fff':'#fafaf8', borderBottom:'0.5px solid #f0ede6' }}>
                   <td style={{ padding:'8px 10px', whiteSpace:'nowrap' }}>{fmtDate(m.mov_date||m.created_at)}</td>
-                  <td style={{ padding:'8px 10px' }}><span style={{ fontSize:11, fontWeight:600, color:m.type==='entrada'?'#065F46':'#6D28D9', background:m.type==='entrada'?'#D1FAE5':'#EDE9FE', borderRadius:4, padding:'2px 8px' }}>{m.type==='entrada'?'▲ Entrada':'▼ Saída'}</span></td>
-                  <td style={{ padding:'8px 10px', fontWeight:500 }}>{m.stock_item?.description||'—'}</td>
+                  <td style={{ padding:'8px 10px' }}><span style={{ fontSize:11, fontWeight:600, color:m.type==='entrada'?'#065F46':'#6D28D9', background:m.type==='entrada'?'#D1FAE5':'#EDE9FE', borderRadius:4, padding:'2px 8px' }}>{m.type==='entrada'?'â–² Entrada':'â–¼ SaÃ­da'}</span></td>
+                  <td style={{ padding:'8px 10px', fontWeight:500 }}>{m.stock_item?.description||'â€”'}</td>
                   <td style={{ padding:'8px 10px', fontWeight:700, textAlign:'center' }}>{m.quantity}</td>
-                  <td style={{ padding:'8px 10px', color:'#555' }}>{m.supplier||m.destination||'—'}</td>
-                  <td style={{ padding:'8px 10px', color:'#888', fontSize:11 }}>{m.released_by||m.created_by_name||'—'}</td>
+                  <td style={{ padding:'8px 10px', color:'#555' }}>{m.supplier||m.destination||'â€”'}</td>
+                  <td style={{ padding:'8px 10px', color:'#888', fontSize:11 }}>{m.released_by||m.created_by_name||'â€”'}</td>
                 </tr>
               ))}
             </tbody>
@@ -730,8 +728,8 @@ function TabNFs({ movs }) {
 
   return (
     <div>
-      <h2 style={{ fontSize:16, fontWeight:600, color:'#1A478A', marginBottom:14 }}>📁 Notas Fiscais e Documentos</h2>
-      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por fornecedor ou Nº NF..."
+      <h2 style={{ fontSize:16, fontWeight:600, color:'#1A478A', marginBottom:14 }}>ðŸ“ Notas Fiscais e Documentos</h2>
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por fornecedor ou NÂº NF..."
         style={{ ...ST.input, marginBottom:14, maxWidth:400 }} />
       {nfs.length===0 && <p style={{ color:'#888', fontSize:13 }}>Nenhuma nota fiscal registrada.</p>}
       {nfs.map((m,i)=>{
@@ -743,23 +741,23 @@ function TabNFs({ movs }) {
               <div>
                 <div style={{ display:'flex', gap:10, alignItems:'center', marginBottom:6, flexWrap:'wrap' }}>
                   <span style={{ fontSize:14, fontWeight:600 }}>NF {m.nf_number||'S/N'}</span>
-                  <span style={{ fontSize:12, color:'#888' }}>📅 {fmtDate(m.mov_date)}</span>
+                  <span style={{ fontSize:12, color:'#888' }}>ðŸ“… {fmtDate(m.mov_date)}</span>
                   <span style={{ fontSize:12, background:'#EEF2FF', color:'#4338CA', borderRadius:4, padding:'2px 8px' }}>{m.entry_type}</span>
                 </div>
-                <p style={{ fontSize:13, color:'#555', marginBottom:4 }}>🏭 {m.supplier||'Fornecedor não informado'}</p>
-                <p style={{ fontSize:12, color:'#888' }}>{itensMov.length} item(ns) · {total>0?fmtMoney(total):'Valor não informado'}</p>
+                <p style={{ fontSize:13, color:'#555', marginBottom:4 }}>ðŸ­ {m.supplier||'Fornecedor nÃ£o informado'}</p>
+                <p style={{ fontSize:12, color:'#888' }}>{itensMov.length} item(ns) Â· {total>0?fmtMoney(total):'Valor nÃ£o informado'}</p>
                 <div style={{ marginTop:8, display:'flex', flexWrap:'wrap', gap:6 }}>
                   {itensMov.map((mv,j)=>(
                     <span key={j} style={{ fontSize:11, background:'#f7f5f0', borderRadius:4, padding:'2px 8px', border:'0.5px solid #e5e3dc' }}>
-                      {mv.stock_item?.description||'—'} × {mv.quantity}
+                      {mv.stock_item?.description||'â€”'} Ã— {mv.quantity}
                     </span>
                   ))}
                 </div>
               </div>
               <div style={{ display:'flex', gap:8 }}>
                 {m.nf_url ? <>
-                  <a href={m.nf_url} target="_blank" rel="noreferrer" style={{ ...ST.btn('#1A478A','#EEF2FF'), textDecoration:'none', fontSize:12, padding:'6px 12px' }}>👁 Ver</a>
-                  <a href={m.nf_url} download style={{ ...ST.btn(), textDecoration:'none', fontSize:12, padding:'6px 12px' }}>⬇ Download</a>
+                  <a href={m.nf_url} target="_blank" rel="noreferrer" style={{ ...ST.btn('#1A478A','#EEF2FF'), textDecoration:'none', fontSize:12, padding:'6px 12px' }}>ðŸ‘ Ver</a>
+                  <a href={m.nf_url} download style={{ ...ST.btn(), textDecoration:'none', fontSize:12, padding:'6px 12px' }}>â¬‡ Download</a>
                 </> : <span style={{ fontSize:12, color:'#aaa', alignSelf:'center' }}>Sem arquivo</span>}
               </div>
             </div>
@@ -777,7 +775,7 @@ function TabHistorico({ movs, items }) {
 
   const filtered = useMemo(() => movs.filter(m=>{
     if(typeFil==='Entradas'&&m.type!=='entrada') return false
-    if(typeFil==='Saídas'&&m.type!=='saida')     return false
+    if(typeFil==='SaÃ­das'&&m.type!=='saida')     return false
     if(search){const q=search.toLowerCase();const nm=(m.stock_item?.description||'').toLowerCase();const sup=(m.supplier||m.destination||m.requester||'').toLowerCase();if(!nm.includes(q)&&!sup.includes(q)) return false}
     if(catFil!=='Todas'){const cat=m.stock_item?.category||'Geral';if(cat!==catFil) return false}
     return true
@@ -787,11 +785,11 @@ function TabHistorico({ movs, items }) {
 
   return (
     <div>
-      <h2 style={{ fontSize:16, fontWeight:600, color:'#1A478A', marginBottom:14 }}>📋 Histórico de Movimentações</h2>
+      <h2 style={{ fontSize:16, fontWeight:600, color:'#1A478A', marginBottom:14 }}>ðŸ“‹ HistÃ³rico de MovimentaÃ§Ãµes</h2>
       <div style={{ display:'flex', gap:8, marginBottom:14, flexWrap:'wrap' }}>
         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar..." style={{ ...ST.input, maxWidth:260 }} />
         <select value={typeFil} onChange={e=>setTypeFil(e.target.value)} style={{ padding:'8px 10px', borderRadius:8, border:'0.5px solid #e5e3dc', fontSize:13 }}>
-          {['Todos','Entradas','Saídas'].map(t=><option key={t}>{t}</option>)}
+          {['Todos','Entradas','SaÃ­das'].map(t=><option key={t}>{t}</option>)}
         </select>
         <select value={catFil} onChange={e=>setCatFil(e.target.value)} style={{ padding:'8px 10px', borderRadius:8, border:'0.5px solid #e5e3dc', fontSize:13 }}>
           {allCats.map(c=><option key={c}>{c}</option>)}
@@ -801,26 +799,26 @@ function TabHistorico({ movs, items }) {
         <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>
           <thead>
             <tr style={{ background:'#f1efe8' }}>
-              {['Data','Tipo','Material','Qtd','Fornec./Destino','NF','Responsável'].map(h=>(
+              {['Data','Tipo','Material','Qtd','Fornec./Destino','NF','ResponsÃ¡vel'].map(h=>(
                 <th key={h} style={{ padding:'8px 10px', textAlign:'left', fontWeight:600, color:'#555', borderBottom:'0.5px solid #e5e3dc', whiteSpace:'nowrap' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {filtered.length===0 && <tr><td colSpan={7} style={{ textAlign:'center', padding:'2rem', color:'#888' }}>Nenhuma movimentação.</td></tr>}
+            {filtered.length===0 && <tr><td colSpan={7} style={{ textAlign:'center', padding:'2rem', color:'#888' }}>Nenhuma movimentaÃ§Ã£o.</td></tr>}
             {filtered.map((m,i)=>(
               <tr key={m.id||i} style={{ background:i%2===0?'#fff':'#fafaf8', borderBottom:'0.5px solid #f0ede6' }}>
                 <td style={{ padding:'8px 10px', whiteSpace:'nowrap' }}>{fmtDate(m.mov_date||m.created_at)}</td>
                 <td style={{ padding:'8px 10px' }}>
                   <span style={{ fontSize:11, fontWeight:600, color:m.type==='entrada'?'#065F46':'#C2410C', background:m.type==='entrada'?'#D1FAE5':'#FEE2E2', borderRadius:4, padding:'2px 8px' }}>
-                    {m.type==='entrada'?`▲ ${m.entry_type||'Entrada'}`:`▼ ${m.exit_type||'Saída'}`}
+                    {m.type==='entrada'?`â–² ${m.entry_type||'Entrada'}`:`â–¼ ${m.exit_type||'SaÃ­da'}`}
                   </span>
                 </td>
-                <td style={{ padding:'8px 10px', fontWeight:500 }}>{m.stock_item?.description||'—'}</td>
+                <td style={{ padding:'8px 10px', fontWeight:500 }}>{m.stock_item?.description||'â€”'}</td>
                 <td style={{ padding:'8px 10px', fontWeight:700, textAlign:'center' }}>{m.quantity}</td>
-                <td style={{ padding:'8px 10px', color:'#555' }}>{m.supplier||m.destination||'—'}</td>
-                <td style={{ padding:'8px 10px' }}>{m.nf_number?<span style={{ fontSize:11 }}>{m.nf_number}</span>:'—'}</td>
-                <td style={{ padding:'8px 10px', color:'#888', fontSize:11 }}>{m.released_by||m.created_by_name||'—'}</td>
+                <td style={{ padding:'8px 10px', color:'#555' }}>{m.supplier||m.destination||'â€”'}</td>
+                <td style={{ padding:'8px 10px' }}>{m.nf_number?<span style={{ fontSize:11 }}>{m.nf_number}</span>:'â€”'}</td>
+                <td style={{ padding:'8px 10px', color:'#888', fontSize:11 }}>{m.released_by||m.created_by_name||'â€”'}</td>
               </tr>
             ))}
           </tbody>
@@ -853,7 +851,7 @@ function TabCadastro({ items, sb, onSaved, showMsg, showErr, profile }) {
   function editarItem(it) { setEditing(it); setForm({description:it.description,category:it.category||'Geral',unit:it.unit,quantity:it.quantity||0,min_quantity:it.min_quantity||0}); setShowForm(true) }
 
   async function salvar() {
-    if(!form.description.trim()){showErr('Informe a descrição.'); return}
+    if(!form.description.trim()){showErr('Informe a descriÃ§Ã£o.'); return}
     setSaving(true)
     try {
       const payload={description:form.description.trim(),category:form.category,unit:form.unit,quantity:parseFloat(form.quantity)||0,min_quantity:parseFloat(form.min_quantity)||0}
@@ -868,24 +866,24 @@ function TabCadastro({ items, sb, onSaved, showMsg, showErr, profile }) {
     try {
       await sb.from('stock_movements').delete().eq('stock_item_id',id)
       await sb.from('stock_items').delete().eq('id',id)
-      showMsg('Item excluído.'); setDelConf(null); onSaved()
+      showMsg('Item excluÃ­do.'); setDelConf(null); onSaved()
     } catch(e){showErr('Erro: '+e.message)} finally{setSaving(false)}
   }
 
   return (
     <div>
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14, flexWrap:'wrap', gap:8 }}>
-        <h2 style={{ fontSize:16, fontWeight:600, color:'#1A478A' }}>⚙️ Catálogo de Materiais</h2>
+        <h2 style={{ fontSize:16, fontWeight:600, color:'#1A478A' }}>âš™ï¸ CatÃ¡logo de Materiais</h2>
         <button onClick={novoItem} style={ST.btnP}>+ Novo item</button>
       </div>
 
       {showForm && (
         <div style={{ ...ST.card, border:'1px solid #1D9E75', background:'#F0FDF4', marginBottom:14 }}>
-          <p style={{ fontWeight:600, color:'#065F46', marginBottom:12 }}>{editing?'✏ Editar item':'+ Novo item'}</p>
+          <p style={{ fontWeight:600, color:'#065F46', marginBottom:12 }}>{editing?'âœ Editar item':'+ Novo item'}</p>
           <div style={ST.grid2}>
             <div style={{ gridColumn:'1 / -1' }}>
-              <label style={ST.label}>Descrição *</label>
-              <input value={form.description} onChange={e=>setF('description',e.target.value)} placeholder="Ex: Cabo 2,5mm² Flexível" style={ST.input} />
+              <label style={ST.label}>DescriÃ§Ã£o *</label>
+              <input value={form.description} onChange={e=>setF('description',e.target.value)} placeholder="Ex: Cabo 2,5mmÂ² FlexÃ­vel" style={ST.input} />
             </div>
             <div>
               <label style={ST.label}>Categoria</label>
@@ -904,14 +902,14 @@ function TabCadastro({ items, sb, onSaved, showMsg, showErr, profile }) {
               <input type="number" value={form.quantity} onChange={e=>setF('quantity',e.target.value)} min="0" style={ST.input} />
             </div>
             <div>
-              <label style={ST.label}>Estoque mínimo</label>
+              <label style={ST.label}>Estoque mÃ­nimo</label>
               <input type="number" value={form.min_quantity} onChange={e=>setF('min_quantity',e.target.value)} min="0" style={ST.input} />
             </div>
           </div>
           <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:12 }}>
             <button onClick={()=>{setShowForm(false);setEditing(null)}} style={ST.btn()}>Cancelar</button>
             <button onClick={salvar} disabled={saving} style={{ ...ST.btnP, opacity:saving?.6:1 }}>
-              {saving?'Salvando...':editing?'✓ Salvar':'✓ Cadastrar'}
+              {saving?'Salvando...':editing?'âœ“ Salvar':'âœ“ Cadastrar'}
             </button>
           </div>
         </div>
@@ -928,7 +926,7 @@ function TabCadastro({ items, sb, onSaved, showMsg, showErr, profile }) {
         <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
           <thead>
             <tr style={{ background:'#f1efe8' }}>
-              {['Categoria','Descrição','Unid.','Saldo','Mínimo','Status','Ações'].map(h=>(
+              {['Categoria','DescriÃ§Ã£o','Unid.','Saldo','MÃ­nimo','Status','AÃ§Ãµes'].map(h=>(
                 <th key={h} style={{ padding:'8px 12px', textAlign:'left', fontWeight:600, fontSize:12, color:'#555', borderBottom:'0.5px solid #e5e3dc' }}>{h}</th>
               ))}
             </tr>
@@ -942,12 +940,12 @@ function TabCadastro({ items, sb, onSaved, showMsg, showErr, profile }) {
                   <td style={{ padding:'8px 12px', fontWeight:500 }}>{item.description}</td>
                   <td style={{ padding:'8px 12px', color:'#888' }}>{item.unit}</td>
                   <td style={{ padding:'8px 12px', fontWeight:700, color:(item.quantity||0)<=0?'#DC2626':'#111' }}>{item.quantity??0}</td>
-                  <td style={{ padding:'8px 12px', color:'#888' }}>{item.min_quantity||'—'}</td>
+                  <td style={{ padding:'8px 12px', color:'#888' }}>{item.min_quantity||'â€”'}</td>
                   <td style={{ padding:'8px 12px' }}><StatusBadge item={item} /></td>
                   <td style={{ padding:'8px 12px' }}>
                     <div style={{ display:'flex', gap:6 }}>
-                      <button onClick={()=>editarItem(item)} style={{ ...ST.btn(), fontSize:11, padding:'4px 10px' }}>✏</button>
-                      <button onClick={()=>setDelConf(item.id)} style={{ fontSize:11, padding:'4px 8px', borderRadius:6, border:'0.5px solid #FCA5A5', background:'#FEE2E2', color:'#991B1B', cursor:'pointer' }}>✕</button>
+                      <button onClick={()=>editarItem(item)} style={{ ...ST.btn(), fontSize:11, padding:'4px 10px' }}>âœ</button>
+                      <button onClick={()=>setDelConf(item.id)} style={{ fontSize:11, padding:'4px 8px', borderRadius:6, border:'0.5px solid #FCA5A5', background:'#FEE2E2', color:'#991B1B', cursor:'pointer' }}>âœ•</button>
                     </div>
                   </td>
                 </tr>
@@ -955,9 +953,9 @@ function TabCadastro({ items, sb, onSaved, showMsg, showErr, profile }) {
                   <tr key={item.id+'_d'}>
                     <td colSpan={7} style={{ background:'#FFF7ED', padding:'10px 12px', borderBottom:'0.5px solid #FCD34D' }}>
                       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                        <p style={{ fontSize:13, color:'#92400E' }}>Confirma exclusão de <strong>{item.description}</strong>?</p>
+                        <p style={{ fontSize:13, color:'#92400E' }}>Confirma exclusÃ£o de <strong>{item.description}</strong>?</p>
                         <div style={{ display:'flex', gap:6 }}>
-                          <button onClick={()=>setDelConf(null)} style={ST.btn()}>Não</button>
+                          <button onClick={()=>setDelConf(null)} style={ST.btn()}>NÃ£o</button>
                           <button onClick={()=>excluir(item.id)} disabled={saving}
                             style={{ padding:'6px 14px', borderRadius:8, border:'none', background:'#DC2626', color:'#fff', cursor:'pointer', fontSize:13 }}>
                             Sim, excluir
