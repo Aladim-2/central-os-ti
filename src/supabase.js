@@ -15,6 +15,9 @@ export const supabase = createClient(url, key, {
   auth: { persistSession: true, autoRefreshToken: true }
 })
 
+// Instância admin (service role) — usado por UserManager e MapView
+export const supabaseAdmin = createClient(url, import.meta.env.VITE_SUPABASE_SERVICE_KEY)
+
 // ── Helpers de autenticação ──────────────────────────────────
 
 export async function signIn(email, password) {
