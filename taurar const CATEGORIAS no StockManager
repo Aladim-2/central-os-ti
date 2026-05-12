@@ -1,0 +1,672 @@
+[1mdiff --git a/src/pages/manager/StockManager.jsx b/src/pages/manager/StockManager.jsx[m
+[1mindex 0823bda..e10360f 100644[m
+[1m--- a/src/pages/manager/StockManager.jsx[m
+[1m+++ b/src/pages/manager/StockManager.jsx[m
+[36m@@ -1,28 +1,30 @@[m
+ import { useState, useEffect, useMemo, useRef } from 'react'[m
+ import { supabase as sb } from '../../supabase'[m
+[31m-  'Cabos e Fios','Disjuntores','Quadros ElÃ©tricos','Eletrodutos',[m
+[31m-  'Eletrocalhas','ConexÃµes','Tomadas e Interruptores','IluminaÃ§Ã£o',[m
+[31m-  'DPS e ProteÃ§Ã£o','Aterramento','Equipamentos','EPI','FixaÃ§Ã£o','AcessÃ³rios','Geral'[m
+[32m+[m
+[32m+[m[32mconst CATEGORIAS = [[m
+[32m+[m[32m  'Cabos e Fios','Disjuntores','Quadros ElÃƒÂ©tricos','Eletrodutos',[m
+[32m+[m[32m  'Eletrocalhas','ConexÃƒÂµes','Tomadas e Interruptores','IluminaÃƒÂ§ÃƒÂ£o',[m
+[32m+[m[32m  'DPS e ProteÃƒÂ§ÃƒÂ£o','Aterramento','Equipamentos','EPI','FixaÃƒÂ§ÃƒÂ£o','AcessÃƒÂ³rios','Geral'[m
+ ][m
+ const CAT_FERRAMENTAS = [[m
+[31m-  'Ferramentas Manuais','Ferramentas ElÃ©tricas','MÃ¡quinas','Instrumentos de MediÃ§Ã£o',[m
+[31m-  'Equipamentos de SeguranÃ§a','Escadas e Andaimes','Outros'[m
+[32m+[m[32m  'Ferramentas Manuais','Ferramentas ElÃƒÂ©tricas','MÃƒÂ¡quinas','Instrumentos de MediÃƒÂ§ÃƒÂ£o',[m
+[32m+[m[32m  'Equipamentos de SeguranÃƒÂ§a','Escadas e Andaimes','Outros'[m
+ ][m
+ const UNIDADES    = ['un','m','kg','cx','pct','rolo','l','par','jogo','kit'][m
+[31m-const ENTRY_TYPES = ['Compra','DoaÃ§Ã£o','TransferÃªncia'][m
+[31m-const EXIT_TYPES  = ['Uso em obra','ManutenÃ§Ã£o','Perda','TransferÃªncia','EmprÃ©stimo'][m
+[32m+[m[32mconst ENTRY_TYPES = ['Compra','DoaÃƒÂ§ÃƒÂ£o','TransferÃƒÂªncia'][m
+[32m+[m[32mconst EXIT_TYPES  = ['Uso em obra','ManutenÃƒÂ§ÃƒÂ£o','Perda','TransferÃƒÂªncia','EmprÃƒÂ©stimo'][m
+ [m
+ function hoje() { return new Date().toISOString().split('T')[0] }[m
+[31m-function fmtDate(d) { if (!d) return 'â€”'; const [y,m,di] = (d.split('T')[0]).split('-'); return `${di}/${m}/${y}` }[m
+[31m-function fmtMoney(v) { return v != null ? 'R$ ' + Number(v).toFixed(2).replace('.',',') : 'â€”' }[m
+[32m+[m[32mfunction fmtDate(d) { if (!d) return 'Ã¢â‚¬â€'; const [y,m,di] = (d.split('T')[0]).split('-'); return `${di}/${m}/${y}` }[m
+[32m+[m[32mfunction fmtMoney(v) { return v != null ? 'R$ ' + Number(v).toFixed(2).replace('.',',') : 'Ã¢â‚¬â€' }[m
+ [m
+ function StatusBadge({ item }) {[m
+   const qty = item.quantity || 0[m
+   const min = item.min_quantity || 0[m
+[31m-  if (qty <= 0)                        return <span style={ST.badge('#DC2626','#FEE2E2')}>ðŸ”´ Zerado</span>[m
+[31m-  if (min > 0 && qty <= min * 0.5)     return <span style={ST.badge('#C2410C','#FFF7ED')}>ðŸŸ  CrÃ­tico</span>[m
+[31m-  if (min > 0 && qty <= min)           return <span style={ST.badge('#D97706','#FFFBEB')}>ðŸŸ¡ Baixo</span>[m
+[31m-  return <span style={ST.badge('#065F46','#D1FAE5')}>ðŸŸ¢ Normal</span>[m
+[32m+[m[32m  if (qty <= 0)                        return <span style={ST.badge('#DC2626','#FEE2E2')}>Ã°Å¸â€Â´ Zerado</span>[m
+[32m+[m[32m  if (min > 0 && qty <= min * 0.5)     return <span style={ST.badge('#C2410C','#FFF7ED')}>Ã°Å¸Å¸Â  CrÃƒÂ­tico</span>[m
+[32m+[m[32m  if (min > 0 && qty <= min)           return <span style={ST.badge('#D97706','#FFFBEB')}>Ã°Å¸Å¸Â¡ Baixo</span>[m
+[32m+[m[32m  return <span style={ST.badge('#065F46','#D1FAE5')}>Ã°Å¸Å¸Â¢ Normal</span>[m
+ }[m
+ [m
+ const ST = {[m
+[36m@@ -46,7 +48,7 @@[m [mfunction NovoItemInline({ cats, onCriado, onCancelar }) {[m
+   const set = (k,v) => setF(p => ({...p,[k]:v}))[m
+ [m
+   async function criar() {[m
+[31m-    if (!f.description.trim()) { setErr('Informe a descriÃ§Ã£o.'); return }[m
+[32m+[m[32m    if (!f.description.trim()) { setErr('Informe a descriÃƒÂ§ÃƒÂ£o.'); return }[m
+     setSaving(true)[m
+     try {[m
+       const { data, error } = await sb.from('stock_items').insert({[m
+[36m@@ -61,12 +63,12 @@[m [mfunction NovoItemInline({ cats, onCriado, onCancelar }) {[m
+ [m
+   return ([m
+     <div style={{ background:'#FFFBEB', border:'1px solid #FCD34D', borderRadius:8, padding:'12px 14px', marginTop:8 }}>[m
+[31m-      <p style={{ fontSize:12, fontWeight:600, color:'#92400E', marginBottom:10 }}>âž• Cadastrar novo item</p>[m
+[32m+[m[32m      <p style={{ fontSize:12, fontWeight:600, color:'#92400E', marginBottom:10 }}>Ã¢Å¾â€¢ Cadastrar novo item</p>[m
+       <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr 1fr', gap:8, marginBottom:8 }}>[m
+         <div>[m
+[31m-          <label style={ST.label}>DescriÃ§Ã£o *</label>[m
+[32m+[m[32m          <label style={ST.label}>DescriÃƒÂ§ÃƒÂ£o *</label>[m
+           <input value={f.description} onChange={e => set('description',e.target.value)}[m
+[31m-            placeholder="Ex: Cabo 2,5mmÂ² FlexÃ­vel" style={ST.input} autoFocus />[m
+[32m+[m[32m            placeholder="Ex: Cabo 2,5mmÃ‚Â² FlexÃƒÂ­vel" style={ST.input} autoFocus />[m
+         </div>[m
+         <div>[m
+           <label style={ST.label}>Unidade</label>[m
+[36m@@ -75,7 +77,7 @@[m [mfunction NovoItemInline({ cats, onCriado, onCancelar }) {[m
+           </select>[m
+         </div>[m
+         <div>[m
+[31m-          <label style={ST.label}>Estoque mÃ­nimo</label>[m
+[32m+[m[32m          <label style={ST.label}>Estoque mÃƒÂ­nimo</label>[m
+           <input type="number" value={f.min_quantity} onChange={e => set('min_quantity',e.target.value)} min="0" style={ST.input} />[m
+         </div>[m
+       </div>[m
+[36m@@ -90,7 +92,7 @@[m [mfunction NovoItemInline({ cats, onCriado, onCancelar }) {[m
+         <button onClick={onCancelar} style={ST.btn()}>Cancelar</button>[m
+         <button onClick={criar} disabled={saving}[m
+           style={{ ...ST.btnP, background:'#D97706', fontSize:12, padding:'6px 16px', opacity:saving?.6:1 }}>[m
+[31m-          {saving ? 'Salvando...' : 'âœ“ Criar e selecionar'}[m
+[32m+[m[32m          {saving ? 'Salvando...' : 'Ã¢Å“â€œ Criar e selecionar'}[m
+         </button>[m
+       </div>[m
+     </div>[m
+[36m@@ -117,7 +119,7 @@[m [mfunction LinhaItem({ linha, idx, items, cats, onSet, onRem, cols, showPrice }) {[m
+               style={{ ...ST.input, flex:1 }}>[m
+               <option value="">Selecione o material...</option>[m
+               {cols === 'saida'[m
+[31m-                ? items.filter(i => (i.quantity||0) > 0).map(i => <option key={i.id} value={i.id}>{i.description} â€” saldo: {i.quantity} {i.unit}</option>)[m
+[32m+[m[32m                ? items.filter(i => (i.quantity||0) > 0).map(i => <option key={i.id} value={i.id}>{i.description} Ã¢â‚¬â€ saldo: {i.quantity} {i.unit}</option>)[m
+                 : items.map(i => <option key={i.id} value={i.id}>{i.description} ({i.unit})</option>)[m
+               }[m
+             </select>[m
+[36m@@ -126,10 +128,10 @@[m [mfunction LinhaItem({ linha, idx, items, cats, onSet, onRem, cols, showPrice }) {[m
+               title="Cadastrar novo item"[m
+               style={{ flexShrink:0, padding:'6px 10px', borderRadius:8, border:'0.5px solid #FCD34D',[m
+                 background: showNovo ? '#FCD34D' : '#FFFBEB', color:'#92400E', cursor:'pointer', fontSize:16, fontWeight:700 }}>[m
+[31m-              ï¼‹[m
+[32m+[m[32m              Ã¯Â¼â€¹[m
+             </button>[m
+           </div>[m
+[31m-          {semSaldo && <p style={{ fontSize:11, color:'#DC2626', marginTop:2 }}>âš  Saldo insuficiente</p>}[m
+[32m+[m[32m          {semSaldo && <p style={{ fontSize:11, color:'#DC2626', marginTop:2 }}>Ã¢Å¡Â  Saldo insuficiente</p>}[m
+         </div>[m
+ [m
+         <input type="number" value={linha.qty}[m
+[36m@@ -146,7 +148,7 @@[m [mfunction LinhaItem({ linha, idx, items, cats, onSet, onRem, cols, showPrice }) {[m
+         </>}[m
+ [m
+         <button onClick={() => onRem(idx)}[m
+[31m-          style={{ borderRadius:8, border:'0.5px solid #FCA5A5', background:'#FEE2E2', color:'#991B1B', cursor:'pointer', fontSize:16 }}>âœ•</button>[m
+[32m+[m[32m          style={{ borderRadius:8, border:'0.5px solid #FCA5A5', background:'#FEE2E2', color:'#991B1B', cursor:'pointer', fontSize:16 }}>Ã¢Å“â€¢</button>[m
+       </div>[m
+ [m
+       {showNovo && ([m
+[36m@@ -203,13 +205,13 @@[m [mexport default function StockManager({ profile, osList, itemsExt, movsExt, onRel[m
+   const itensBaixos  = itemsMat.filter(i => i.quantity > 0 && i.min_quantity > 0 && i.quantity <= i.min_quantity).length[m
+ [m
+   const TABS = [[m
+[31m-    { id:'estoque',    label:'ðŸ“Š Estoque Atual' },[m
+[31m-    { id:'entrada',    label:'ðŸ“¥ Entrada' },[m
+[31m-    { id:'saida',      label:'ðŸ“¤ SaÃ­da' },[m
+[31m-    { id:'ferramentas',label:'ðŸ”§ Ferramentas e MÃ¡quinas' },[m
+[31m-    { id:'nfs',        label:'ðŸ“ Notas Fiscais' },[m
+[31m-    { id:'historico',  label:'ðŸ“‹ HistÃ³rico' },[m
+[31m-    { id:'cadastro',   label:'âš™ï¸ Itens' },[m
+[32m+[m[32m    { id:'estoque',    label:'Ã°Å¸â€œÅ  Estoque Atual' },[m
+[32m+[m[32m    { id:'entrada',    label:'Ã°Å¸â€œÂ¥ Entrada' },[m
+[32m+[m[32m    { id:'saida',      label:'Ã°Å¸â€œÂ¤ SaÃƒÂ­da' },[m
+[32m+[m[32m    { id:'ferramentas',label:'Ã°Å¸â€Â§ Ferramentas e MÃƒÂ¡quinas' },[m
+[32m+[m[32m    { id:'nfs',        label:'Ã°Å¸â€œÂ Notas Fiscais' },[m
+[32m+[m[32m    { id:'historico',  label:'Ã°Å¸â€œâ€¹ HistÃƒÂ³rico' },[m
+[32m+[m[32m    { id:'cadastro',   label:'Ã¢Å¡â„¢Ã¯Â¸Â Itens' },[m
+   ][m
+ [m
+   const sharedProps = { items, profile, sb, onSaved:load, showMsg, showErr, saving, setSaving, locs }[m
+[36m@@ -217,14 +219,14 @@[m [mexport default function StockManager({ profile, osList, itemsExt, movsExt, onRel[m
+   return ([m
+     <div style={{ maxWidth:960 }}>[m
+       <div style={{ marginBottom:'1.2rem' }}>[m
+[31m-        <h1 style={{ fontSize:20, fontWeight:500, marginBottom:2 }}>ðŸ“¦ Estoque ElÃ©trico</h1>[m
+[31m-        <p style={{ fontSize:13, color:'#888780' }}>Almoxarifado tÃ©cnico â€” materiais elÃ©tricos</p>[m
+[32m+[m[32m        <h1 style={{ fontSize:20, fontWeight:500, marginBottom:2 }}>Ã°Å¸â€œÂ¦ Estoque ElÃƒÂ©trico</h1>[m
+[32m+[m[32m        <p style={{ fontSize:13, color:'#888780' }}>Almoxarifado tÃƒÂ©cnico Ã¢â‚¬â€ materiais elÃƒÂ©tricos</p>[m
+       </div>[m
+ [m
+       <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginBottom:'1.2rem' }}>[m
+         {[[m
+           { label:'Total de itens',  val:totalItens,   c:'#111',    bg:'#f5f5f4' },[m
+[31m-          { label:'DisponÃ­veis',     val:itensDisp,    c:'#065F46', bg:'#D1FAE5' },[m
+[32m+[m[32m          { label:'DisponÃƒÂ­veis',     val:itensDisp,    c:'#065F46', bg:'#D1FAE5' },[m
+           { label:'Estoque baixo',   val:itensBaixos,  c:'#D97706', bg:'#FFFBEB' },[m
+           { label:'Zerados',         val:itensZerados, c:'#DC2626', bg:'#FEE2E2' },[m
+         ].map(m => ([m
+[36m@@ -235,8 +237,8 @@[m [mexport default function StockManager({ profile, osList, itemsExt, movsExt, onRel[m
+         ))}[m
+       </div>[m
+ [m
+[31m-      {msg && <div style={{ background:'#D1FAE5', border:'0.5px solid #6EE7B7', borderRadius:8, padding:'10px 14px', marginBottom:10, fontSize:13, color:'#065F46' }}>âœ“ {msg}</div>}[m
+[31m-      {err && <div style={{ background:'#FEE2E2', border:'0.5px solid #FCA5A5', borderRadius:8, padding:'10px 14px', marginBottom:10, fontSize:13, color:'#991B1B' }}>âš  {err}</div>}[m
+[32m+[m[32m      {msg && <div style={{ background:'#D1FAE5', border:'0.5px solid #6EE7B7', borderRadius:8, padding:'10px 14px', marginBottom:10, fontSize:13, color:'#065F46' }}>Ã¢Å“â€œ {msg}</div>}[m
+[32m+[m[32m      {err && <div style={{ background:'#FEE2E2', border:'0.5px solid #FCA5A5', borderRadius:8, padding:'10px 14px', marginBottom:10, fontSize:13, color:'#991B1B' }}>Ã¢Å¡Â  {err}</div>}[m
+ [m
+       <div style={{ display:'flex', flexWrap:'wrap', borderBottom:'0.5px solid #e5e3dc', marginBottom:'1.2rem' }}>[m
+         {TABS.map(t => <button key={t.id} onClick={() => setTab(t.id)} style={ST.tab(tab === t.id)}>{t.label}</button>)}[m
+[36m@@ -247,8 +249,8 @@[m [mexport default function StockManager({ profile, osList, itemsExt, movsExt, onRel[m
+       {!loading && ([m
+         <>[m
+           {tab === 'estoque'    && <TabEstoque   items={itemsMat} movs={movs} osList={osList} canExportPDF={canExportPDF} />}[m
+[31m-          {tab === 'entrada'    && <TabEntrada   {...sharedProps} items={itemsMat} cats={CATEGORIAS} titulo="ðŸ“¥ Entrada de Material" cor="#1A478A" />}[m
+[31m-          {tab === 'saida'      && <TabSaida     {...sharedProps} items={itemsMat} cats={CATEGORIAS} titulo="ðŸ“¤ SaÃ­da de Material" cor="#C2410C" />}[m
+[32m+[m[32m          {tab === 'entrada'    && <TabEntrada   {...sharedProps} items={itemsMat} cats={CATEGORIAS} titulo="Ã°Å¸â€œÂ¥ Entrada de Material" cor="#1A478A" />}[m
+[32m+[m[32m          {tab === 'saida'      && <TabSaida     {...sharedProps} items={itemsMat} cats={CATEGORIAS} titulo="Ã°Å¸â€œÂ¤ SaÃƒÂ­da de Material" cor="#C2410C" />}[m
+           {tab === 'ferramentas'&& <TabFerramentas {...sharedProps} itemsFerr={itemsFerr} movs={movs} />}[m
+           {tab === 'nfs'        && <TabNFs       movs={movs} />}[m
+           {tab === 'historico'  && <TabHistorico movs={movs} items={items} />}[m
+[36m@@ -271,7 +273,7 @@[m [mfunction TabEstoque({ items, movs, osList, canExportPDF }) {[m
+     const qty = i.quantity||0, min = i.min_quantity||0[m
+     if (stFil==='Normal'  && !(qty>min&&min>0||qty>0&&min===0)) return false[m
+     if (stFil==='Baixo'   && !(qty>0&&min>0&&qty<=min))          return false[m
+[31m-    if (stFil==='CrÃ­tico' && !(qty>0&&min>0&&qty<=min*.5))       return false[m
+[32m+[m[32m    if (stFil==='CrÃƒÂ­tico' && !(qty>0&&min>0&&qty<=min*.5))       return false[m
+     if (stFil==='Zerado'  && qty>0)                               return false[m
+     return true[m
+   }), [items, search, catFil, stFil])[m
+[36m@@ -294,18 +296,18 @@[m [mfunction TabEstoque({ items, movs, osList, canExportPDF }) {[m
+           <option>Todas</option>{CATEGORIAS.map(c=><option key={c}>{c}</option>)}[m
+         </select>[m
+         <select value={stFil} onChange={e=>setStFil(e.target.value)} style={{ padding:'8px 10px', borderRadius:8, border:'0.5px solid #e5e3dc', fontSize:13 }}>[m
+[31m-          {['Todos','Normal','Baixo','CrÃ­tico','Zerado'].map(s=><option key={s}>{s}</option>)}[m
+[32m+[m[32m          {['Todos','Normal','Baixo','CrÃƒÂ­tico','Zerado'].map(s=><option key={s}>{s}</option>)}[m
+         </select>[m
+[31m-        {canExportPDF && <button onClick={()=>exportarEstoque(filtered)} style={ST.btn()}>ðŸ“„ Exportar PDF</button>}[m
+[32m+[m[32m        {canExportPDF && <button onClick={()=>exportarEstoque(filtered)} style={ST.btn()}>Ã°Å¸â€œâ€ž Exportar PDF</button>}[m
+       </div>[m
+ [m
+       {ranking.length > 0 && ([m
+         <div style={{ ...ST.card, background:'#FFFBEB', border:'0.5px solid #FCD34D', marginBottom:14 }}>[m
+[31m-          <p style={{ fontSize:12, fontWeight:600, color:'#92400E', marginBottom:10 }}>ðŸ† Top 5 â€” Mais consumidos</p>[m
+[32m+[m[32m          <p style={{ fontSize:12, fontWeight:600, color:'#92400E', marginBottom:10 }}>Ã°Å¸Ââ€  Top 5 Ã¢â‚¬â€ Mais consumidos</p>[m
+           <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>[m
+             {ranking.map((r,i)=>([m
+               <div key={i} style={{ background:'#fff', borderRadius:8, padding:'6px 12px', border:'0.5px solid #FCD34D', fontSize:12 }}>[m
+[31m-                <span style={{ fontWeight:700, color:'#D97706', marginRight:6 }}>#{i+1}</span>{r.name} â€” <strong>{r.total}</strong> un.[m
+[32m+[m[32m                <span style={{ fontWeight:700, color:'#D97706', marginRight:6 }}>#{i+1}</span>{r.name} Ã¢â‚¬â€ <strong>{r.total}</strong> un.[m
+               </div>[m
+             ))}[m
+           </div>[m
+[36m@@ -316,7 +318,7 @@[m [mfunction TabEstoque({ items, movs, osList, canExportPDF }) {[m
+         <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>[m
+           <thead>[m
+             <tr style={{ background:'#f1efe8' }}>[m
+[31m-              {['Categoria','Material','Qtd Atual','Unidade','Est. MÃ­n.','Status'].map(h=>([m
+[32m+[m[32m              {['Categoria','Material','Qtd Atual','Unidade','Est. MÃƒÂ­n.','Status'].map(h=>([m
+                 <th key={h} style={{ padding:'8px 12px', textAlign:'left', fontWeight:600, fontSize:12, color:'#555', borderBottom:'0.5px solid #e5e3dc' }}>{h}</th>[m
+               ))}[m
+             </tr>[m
+[36m@@ -331,7 +333,7 @@[m [mfunction TabEstoque({ items, movs, osList, canExportPDF }) {[m
+                 <td style={{ padding:'9px 12px', fontWeight:500 }}>{item.description}</td>[m
+                 <td style={{ padding:'9px 12px', fontWeight:700, fontSize:15, color:(item.quantity||0)<=0?'#DC2626':'#111' }}>{item.quantity??0}</td>[m
+                 <td style={{ padding:'9px 12px', color:'#888' }}>{item.unit}</td>[m
+[31m-                <td style={{ padding:'9px 12px', color:'#888' }}>{item.min_quantity||'â€”'}</td>[m
+[32m+[m[32m                <td style={{ padding:'9px 12px', color:'#888' }}>{item.min_quantity||'Ã¢â‚¬â€'}</td>[m
+                 <td style={{ padding:'9px 12px' }}><StatusBadge item={item} /></td>[m
+               </tr>[m
+             ))}[m
+[36m@@ -352,21 +354,21 @@[m [mfunction HistoricoItem({ item, movs, onClose }) {[m
+       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>[m
+         <div>[m
+           <p style={{ fontWeight:600, fontSize:15, color:'#065F46' }}>{item.description}</p>[m
+[31m-          <p style={{ fontSize:12, color:'#888', marginTop:2 }}>{item.category} Â· {item.unit}</p>[m
+[32m+[m[32m          <p style={{ fontSize:12, color:'#888', marginTop:2 }}>{item.category} Ã‚Â· {item.unit}</p>[m
+         </div>[m
+[31m-        <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:'#888' }}>âœ•</button>[m
+[32m+[m[32m        <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', fontSize:20, color:'#888' }}>Ã¢Å“â€¢</button>[m
+       </div>[m
+       <div style={{ display:'flex', gap:16, marginBottom:14, fontSize:13 }}>[m
+[31m-        <span style={{ color:'#065F46', fontWeight:600 }}>ðŸ“¥ {entradas}</span>[m
+[31m-        <span style={{ color:'#C2410C', fontWeight:600 }}>ðŸ“¤ {saidas}</span>[m
+[31m-        <span style={{ fontWeight:700 }}>ðŸ“¦ Saldo: {item.quantity??0} {item.unit}</span>[m
+[32m+[m[32m        <span style={{ color:'#065F46', fontWeight:600 }}>Ã°Å¸â€œÂ¥ {entradas}</span>[m
+[32m+[m[32m        <span style={{ color:'#C2410C', fontWeight:600 }}>Ã°Å¸â€œÂ¤ {saidas}</span>[m
+[32m+[m[32m        <span style={{ fontWeight:700 }}>Ã°Å¸â€œÂ¦ Saldo: {item.quantity??0} {item.unit}</span>[m
+       </div>[m
+       <div style={{ maxHeight:200, overflowY:'auto' }}>[m
+         {hist.map((m,i)=>([m
+           <div key={i} style={{ display:'flex', gap:12, padding:'6px 0', borderBottom:'0.5px solid #d1fae5', fontSize:12 }}>[m
+[31m-            <span style={{ color:m.type==='entrada'?'#065F46':'#C2410C', fontWeight:700, minWidth:60 }}>{m.type==='entrada'?'â–² Entr.':'â–¼ SaÃ­da'}</span>[m
+[32m+[m[32m            <span style={{ color:m.type==='entrada'?'#065F46':'#C2410C', fontWeight:700, minWidth:60 }}>{m.type==='entrada'?'Ã¢â€“Â² Entr.':'Ã¢â€“Â¼ SaÃƒÂ­da'}</span>[m
+             <span style={{ fontWeight:600, minWidth:40 }}>{m.quantity}</span>[m
+[31m-            <span style={{ color:'#888', flex:1 }}>{m.destination||m.supplier||m.notes||'â€”'}</span>[m
+[32m+[m[32m            <span style={{ color:'#888', flex:1 }}>{m.destination||m.supplier||m.notes||'Ã¢â‚¬â€'}</span>[m
+             <span style={{ color:'#aaa', minWidth:80 }}>{fmtDate(m.mov_date||m.created_at)}</span>[m
+           </div>[m
+         ))}[m
+[36m@@ -381,15 +383,15 @@[m [mfunction exportarEstoque(items) {[m
+     <td style="padding:6px 10px;border:0.5px solid #ddd;font-weight:500">${i.description}</td>[m
+     <td style="padding:6px 10px;border:0.5px solid #ddd;text-align:center;font-weight:700">${i.quantity??0}</td>[m
+     <td style="padding:6px 10px;border:0.5px solid #ddd;text-align:center">${i.unit}</td>[m
+[31m-    <td style="padding:6px 10px;border:0.5px solid #ddd;text-align:center">${i.min_quantity||'â€”'}</td>[m
+[32m+[m[32m    <td style="padding:6px 10px;border:0.5px solid #ddd;text-align:center">${i.min_quantity||'Ã¢â‚¬â€'}</td>[m
+     <td style="padding:6px 10px;border:0.5px solid #ddd;text-align:center;font-weight:600;color:${(i.quantity||0)<=0?'#DC2626':(i.min_quantity&&(i.quantity||0)<=i.min_quantity)?'#D97706':'#065F46'}">[m
+       ${(i.quantity||0)<=0?'ZERADO':(i.min_quantity&&(i.quantity||0)<=i.min_quantity)?'BAIXO':'NORMAL'}[m
+     </td></tr>`).join('')[m
+   const html = `<html><head><meta charset="UTF-8"><style>body{font-family:Arial,sans-serif;margin:30px}h2{color:#1A478A}table{width:100%;border-collapse:collapse}th{background:#1A478A;color:#fff;padding:8px 10px;font-size:12px;text-align:left}td{font-size:12px}</style></head><body>[m
+[31m-    <h2>ðŸ“¦ RelatÃ³rio de Estoque ElÃ©trico</h2>[m
+[31m-    <p style="font-size:12px;color:#666">SEMED Itabuna/BA Â· ${new Date().toLocaleString('pt-BR')}</p>[m
+[31m-    <p style="font-size:12px">Eng. Valter Alves â€” CREA 0519903544/D</p><br>[m
+[31m-    <table><thead><tr><th>Categoria</th><th>Material</th><th>Qtd</th><th>Unid.</th><th>MÃ­nimo</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></body></html>`[m
+[32m+[m[32m    <h2>Ã°Å¸â€œÂ¦ RelatÃƒÂ³rio de Estoque ElÃƒÂ©trico</h2>[m
+[32m+[m[32m    <p style="font-size:12px;color:#666">SEMED Itabuna/BA Ã‚Â· ${new Date().toLocaleString('pt-BR')}</p>[m
+[32m+[m[32m    <p style="font-size:12px">Eng. Valter Alves Ã¢â‚¬â€ CREA 0519903544/D</p><br>[m
+[32m+[m[32m    <table><thead><tr><th>Categoria</th><th>Material</th><th>Qtd</th><th>Unid.</th><th>MÃƒÂ­nimo</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table></body></html>`[m
+   const w = window.open('','_blank'); w.document.write(html); w.document.close(); w.print()[m
+ }[m
+ [m
+[36m@@ -438,7 +440,7 @@[m [mfunction TabEntrada({ items, cats, profile, sb, onSaved, showMsg, showErr, savin[m
+         })[m
+         await sb.from('stock_items').update({quantity:(item.quantity||0)+qty}).eq('id',l.item_id)[m
+       }[m
+[31m-      showMsg(`Entrada registrada â€” ${validas.length} item(ns).`)[m
+[32m+[m[32m      showMsg(`Entrada registrada Ã¢â‚¬â€ ${validas.length} item(ns).`)[m
+       setLinhas([{item_id:'',qty:'',unit_price:'',total_price:''}])[m
+       setForm({mov_date:hoje(),entry_type:'Compra',supplier:'',nf_number:'',received_by:profile?.name||'',notes:''})[m
+       setNfFile(null); onSaved()[m
+[36m@@ -447,7 +449,7 @@[m [mfunction TabEntrada({ items, cats, profile, sb, onSaved, showMsg, showErr, savin[m
+ [m
+   return ([m
+     <div>[m
+[31m-      <h2 style={{ fontSize:16, fontWeight:600, color:cor||'#1A478A', marginBottom:14 }}>{titulo||'ðŸ“¥ Entrada de Material'}</h2>[m
+[32m+[m[32m      <h2 style={{ fontSize:16, fontWeight:600, color:cor||'#1A478A', marginBottom:14 }}>{titulo||'Ã°Å¸â€œÂ¥ Entrada de Material'}</h2>[m
+       <div style={ST.card}>[m
+         <div style={ST.grid3}>[m
+           <div><label style={ST.label}>Data *</label><input type="date" value={form.mov_date} onChange={e=>setF('mov_date',e.target.value)} style={ST.input} /></div>[m
+[36m@@ -457,13 +459,13 @@[m [mfunction TabEntrada({ items, cats, profile, sb, onSaved, showMsg, showErr, savin[m
+             </select>[m
+           </div>[m
+           <div><label style={ST.label}>Fornecedor</label><input value={form.supplier} onChange={e=>setF('supplier',e.target.value)} placeholder="Nome do fornecedor" style={ST.input} /></div>[m
+[31m-          <div><label style={ST.label}>NÂº Nota Fiscal</label><input value={form.nf_number} onChange={e=>setF('nf_number',e.target.value)} placeholder="000123" style={ST.input} /></div>[m
+[32m+[m[32m          <div><label style={ST.label}>NÃ‚Âº Nota Fiscal</label><input value={form.nf_number} onChange={e=>setF('nf_number',e.target.value)} placeholder="000123" style={ST.input} /></div>[m
+           <div>[m
+             <label style={ST.label}>Upload NF (PDF/Excel)</label>[m
+             <input type="file" accept=".pdf,.xlsx,.xls" onChange={e=>setNfFile(e.target.files[0])} style={{ fontSize:12, padding:'6px 0' }} />[m
+[31m-            {nfFile && <p style={{ fontSize:11, color:'#065F46', marginTop:3 }}>âœ“ {nfFile.name}</p>}[m
+[32m+[m[32m            {nfFile && <p style={{ fontSize:11, color:'#065F46', marginTop:3 }}>Ã¢Å“â€œ {nfFile.name}</p>}[m
+           </div>[m
+[31m-          <div><label style={ST.label}>ResponsÃ¡vel</label><input value={form.received_by} onChange={e=>setF('received_by',e.target.value)} style={ST.input} /></div>[m
+[32m+[m[32m          <div><label style={ST.label}>ResponsÃƒÂ¡vel</label><input value={form.received_by} onChange={e=>setF('received_by',e.target.value)} style={ST.input} /></div>[m
+         </div>[m
+ [m
+         <div style={{ marginTop:16 }}>[m
+[36m@@ -479,13 +481,13 @@[m [mfunction TabEntrada({ items, cats, profile, sb, onSaved, showMsg, showErr, savin[m
+         </div>[m
+ [m
+         <div style={{ marginTop:12 }}>[m
+[31m-          <label style={ST.label}>ObservaÃ§Ãµes</label>[m
+[32m+[m[32m          <label style={ST.label}>ObservaÃƒÂ§ÃƒÂµes</label>[m
+           <textarea value={form.notes} onChange={e=>setF('notes',e.target.value)} rows={2}[m
+[31m-            placeholder="ObservaÃ§Ãµes sobre o recebimento..." style={{ ...ST.input, resize:'vertical' }} />[m
+[32m+[m[32m            placeholder="ObservaÃƒÂ§ÃƒÂµes sobre o recebimento..." style={{ ...ST.input, resize:'vertical' }} />[m
+         </div>[m
+         <div style={{ display:'flex', justifyContent:'flex-end', marginTop:14 }}>[m
+           <button onClick={salvar} disabled={saving} style={{ ...ST.btnP, opacity:saving?.6:1 }}>[m
+[31m-            {saving?'Salvando...':'âœ“ Registrar entrada'}[m
+[32m+[m[32m            {saving?'Salvando...':'Ã¢Å“â€œ Registrar entrada'}[m
+           </button>[m
+         </div>[m
+       </div>[m
+[36m@@ -532,7 +534,7 @@[m [mfunction TabSaida({ items, cats, locs, profile, sb, onSaved, showMsg, showErr, s[m
+     for(const l of validas){[m
+       const item=localItems.find(i=>i.id===l.item_id)[m
+       if(item&&(item.quantity||0)<parseFloat(l.qty)){[m
+[31m-        showErr(`Saldo insuficiente: ${item.description} â€” disponÃ­vel: ${item.quantity} ${item.unit}`); return[m
+[32m+[m[32m        showErr(`Saldo insuficiente: ${item.description} Ã¢â‚¬â€ disponÃƒÂ­vel: ${item.quantity} ${item.unit}`); return[m
+       }[m
+     }[m
+     setSaving(true)[m
+[36m@@ -548,7 +550,7 @@[m [mfunction TabSaida({ items, cats, locs, profile, sb, onSaved, showMsg, showErr, s[m
+         })[m
+         await sb.from('stock_items').update({quantity:Math.max(0,(item.quantity||0)-qty)}).eq('id',l.item_id)[m
+       }[m
+[31m-      showMsg(`SaÃ­da registrada â€” ${validas.length} item(ns).`)[m
+[32m+[m[32m      showMsg(`SaÃƒÂ­da registrada Ã¢â‚¬â€ ${validas.length} item(ns).`)[m
+       setLinhas([{item_id:'',qty:''}])[m
+       setForm({mov_date:hoje(),exit_type:'Uso em obra',destination:'',requester:'',released_by:profile?.name||'',notes:''})[m
+       setLocSearch(''); setLocOpen(false)[m
+[36m@@ -558,7 +560,7 @@[m [mfunction TabSaida({ items, cats, locs, profile, sb, onSaved, showMsg, showErr, s[m
+ [m
+   return ([m
+     <div>[m
+[31m-      <h2 style={{ fontSize:16, fontWeight:600, color:cor||'#C2410C', marginBottom:14 }}>{titulo||'ðŸ“¤ SaÃ­da de Material'}</h2>[m
+[32m+[m[32m      <h2 style={{ fontSize:16, fontWeight:600, color:cor||'#C2410C', marginBottom:14 }}>{titulo||'Ã°Å¸â€œÂ¤ SaÃƒÂ­da de Material'}</h2>[m
+       <div style={ST.card}>[m
+         <div style={ST.grid3}>[m
+           <div><label style={ST.label}>Data *</label><input type="date" value={form.mov_date} onChange={e=>setF('mov_date',e.target.value)} style={ST.input} /></div>[m
+[36m@@ -568,7 +570,7 @@[m [mfunction TabSaida({ items, cats, locs, profile, sb, onSaved, showMsg, showErr, s[m
+             </select>[m
+           </div>[m
+ [m
+[31m-          {/* Destino â€” autocomplete de escola */}[m
+[32m+[m[32m          {/* Destino Ã¢â‚¬â€ autocomplete de escola */}[m
+           <div style={{ position:'relative' }}>[m
+             <label style={ST.label}>Escola de destino *</label>[m
+             <div style={{ position:'relative' }}>[m
+[36m@@ -582,8 +584,8 @@[m [mfunction TabSaida({ items, cats, locs, profile, sb, onSaved, showMsg, showErr, s[m
+                 style={{ ...ST.input, borderColor: form.destination ? '#1D9E75' : '#e5e3dc', paddingRight:30 }}[m
+               />[m
+               {form.destination[m
+[31m-                ? <button onClick={()=>{ setF('destination',''); setLocSearch(''); }} style={{ position:'absolute',right:8,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',fontSize:13,color:'#aaa',padding:0 }}>âœ•</button>[m
+[31m-                : <span style={{ position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',fontSize:13,color:'#aaa',pointerEvents:'none' }}>ðŸ”</span>[m
+[32m+[m[32m                ? <button onClick={()=>{ setF('destination',''); setLocSearch(''); }} style={{ position:'absolute',right:8,top:'50%',transform:'translateY(-50%)',background:'none',border:'none',cursor:'pointer',fontSize:13,color:'#aaa',padding:0 }}>Ã¢Å“â€¢</button>[m
+[32m+[m[32m                : <span style={{ position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',fontSize:13,color:'#aaa',pointerEvents:'none' }}>Ã°Å¸â€Â</span>[m
+               }[m
+             </div>[m
+             {locOpen && locsFiltered.length > 0 && ([m
+[36m@@ -601,7 +603,7 @@[m [mfunction TabSaida({ items, cats, locs, profile, sb, onSaved, showMsg, showErr, s[m
+           </div>[m
+ [m
+           <div><label style={ST.label}>Solicitante</label><input value={form.requester} onChange={e=>setF('requester',e.target.value)} placeholder="Nome" style={ST.input} /></div>[m
+[31m-          <div><label style={ST.label}>ResponsÃ¡vel pela liberaÃ§Ã£o</label><input value={form.released_by} onChange={e=>setF('released_by',e.target.value)} style={ST.input} /></div>[m
+[32m+[m[32m          <div><label style={ST.label}>ResponsÃƒÂ¡vel pela liberaÃƒÂ§ÃƒÂ£o</label><input value={form.released_by} onChange={e=>setF('released_by',e.target.value)} style={ST.input} /></div>[m
+         </div>[m
+ [m
+         <div style={{ marginTop:16 }}>[m
+[36m@@ -617,13 +619,13 @@[m [mfunction TabSaida({ items, cats, locs, profile, sb, onSaved, showMsg, showErr, s[m
+         </div>[m
+ [m
+         <div style={{ marginTop:12 }}>[m
+[31m-          <label style={ST.label}>ObservaÃ§Ãµes</label>[m
+[32m+[m[32m          <label style={ST.label}>ObservaÃƒÂ§ÃƒÂµes</label>[m
+           <textarea value={form.notes} onChange={e=>setF('notes',e.target.value)} rows={2}[m
+[31m-            placeholder="ServiÃ§o, OS relacionada..." style={{ ...ST.input, resize:'vertical' }} />[m
+[32m+[m[32m            placeholder="ServiÃƒÂ§o, OS relacionada..." style={{ ...ST.input, resize:'vertical' }} />[m
+         </div>[m
+         <div style={{ display:'flex', justifyContent:'flex-end', marginTop:14 }}>[m
+           <button onClick={salvar} disabled={saving} style={{ ...ST.btnP, background:'#C2410C', opacity:saving?.6:1 }}>[m
+[31m-            {saving?'Salvando...':'âœ“ Registrar saÃ­da'}[m
+[32m+[m[32m            {saving?'Salvando...':'Ã¢Å“â€œ Registrar saÃƒÂ­da'}[m
+           </button>[m
+         </div>[m
+       </div>[m
+[36m@@ -641,11 +643,11 @@[m [mfunction TabFerramentas({ itemsFerr, movs, profile, sb, onSaved, showMsg, showEr[m
+ [m
+   return ([m
+     <div>[m
+[31m-      <h2 style={{ fontSize:16, fontWeight:600, color:'#6D28D9', marginBottom:14 }}>ðŸ”§ Ferramentas e MÃ¡quinas</h2>[m
+[32m+[m[32m      <h2 style={{ fontSize:16, fontWeight:600, color:'#6D28D9', marginBottom:14 }}>Ã°Å¸â€Â§ Ferramentas e MÃƒÂ¡quinas</h2>[m
+       <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:14 }}>[m
+         {[[m
+           {label:'Total',      val:itemsFerr.length, c:'#111',    bg:'#f5f5f4'},[m
+[31m-          {label:'DisponÃ­veis',val:dispFerr,          c:'#065F46', bg:'#D1FAE5'},[m
+[32m+[m[32m          {label:'DisponÃƒÂ­veis',val:dispFerr,          c:'#065F46', bg:'#D1FAE5'},[m
+           {label:'Zerados',    val:zeroFerr,          c:'#DC2626', bg:'#FEE2E2'},[m
+         ].map(m=>([m
+           <div key={m.label} style={{ background:m.bg, borderRadius:8, padding:'10px 14px' }}>[m
+[36m@@ -656,10 +658,10 @@[m [mfunction TabFerramentas({ itemsFerr, movs, profile, sb, onSaved, showMsg, showEr[m
+       </div>[m
+       <div style={{ display:'flex', gap:4, borderBottom:'0.5px solid #e5e3dc', marginBottom:14 }}>[m
+         {[[m
+[31m-          {id:'lista',   label:'ðŸ“‹ InventÃ¡rio'},[m
+[31m-          {id:'entrada', label:'ðŸ“¥ Entrada'},[m
+[31m-          {id:'saida',   label:'ðŸ“¤ SaÃ­da / EmprÃ©stimo'},[m
+[31m-          {id:'hist',    label:'ðŸ“‹ HistÃ³rico'},[m
+[32m+[m[32m          {id:'lista',   label:'Ã°Å¸â€œâ€¹ InventÃƒÂ¡rio'},[m
+[32m+[m[32m          {id:'entrada', label:'Ã°Å¸â€œÂ¥ Entrada'},[m
+[32m+[m[32m          {id:'saida',   label:'Ã°Å¸â€œÂ¤ SaÃƒÂ­da / EmprÃƒÂ©stimo'},[m
+[32m+[m[32m          {id:'hist',    label:'Ã°Å¸â€œâ€¹ HistÃƒÂ³rico'},[m
+         ].map(t=>([m
+           <button key={t.id} onClick={()=>setSub(t.id)} style={ST.tab(sub===t.id)}>{t.label}</button>[m
+         ))}[m
+[36m@@ -669,7 +671,7 @@[m [mfunction TabFerramentas({ itemsFerr, movs, profile, sb, onSaved, showMsg, showEr[m
+           {itemsFerr.length===0 && <div style={{ ...ST.card, textAlign:'center', color:'#888', padding:'2rem' }}>Nenhuma ferramenta cadastrada.</div>}[m
+           <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>[m
+             <thead><tr style={{ background:'#F5F3FF' }}>[m
+[31m-              {['Categoria','DescriÃ§Ã£o','Qtd','Unid.','Status'].map(h=>([m
+[32m+[m[32m              {['Categoria','DescriÃƒÂ§ÃƒÂ£o','Qtd','Unid.','Status'].map(h=>([m
+                 <th key={h} style={{ padding:'8px 12px', textAlign:'left', fontWeight:600, fontSize:12, color:'#4C1D95', borderBottom:'0.5px solid #DDD6FE' }}>{h}</th>[m
+               ))}[m
+             </tr></thead>[m
+[36m@@ -687,14 +689,14 @@[m [mfunction TabFerramentas({ itemsFerr, movs, profile, sb, onSaved, showMsg, showEr[m
+           </table>[m
+         </div>[m
+       )}[m
+[31m-      {sub==='entrada' && <TabEntrada {...sharedProps} titulo="ðŸ“¥ Entrada de Ferramentas / MÃ¡quinas" cor="#6D28D9" />}[m
+[31m-      {sub==='saida'   && <TabSaida   {...sharedProps} titulo="ðŸ“¤ SaÃ­da / EmprÃ©stimo de Ferramentas" cor="#6D28D9" />}[m
+[32m+[m[32m      {sub==='entrada' && <TabEntrada {...sharedProps} titulo="Ã°Å¸â€œÂ¥ Entrada de Ferramentas / MÃƒÂ¡quinas" cor="#6D28D9" />}[m
+[32m+[m[32m      {sub==='saida'   && <TabSaida   {...sharedProps} titulo="Ã°Å¸â€œÂ¤ SaÃƒÂ­da / EmprÃƒÂ©stimo de Ferramentas" cor="#6D28D9" />}[m
+       {sub==='hist' && ([m
+         <div style={{ overflowX:'auto' }}>[m
+[31m-          {movsFerr.length===0 && <p style={{ color:'#888', fontSize:13 }}>Nenhuma movimentaÃ§Ã£o registrada.</p>}[m
+[32m+[m[32m          {movsFerr.length===0 && <p style={{ color:'#888', fontSize:13 }}>Nenhuma movimentaÃƒÂ§ÃƒÂ£o registrada.</p>}[m
+           <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>[m
+             <thead><tr style={{ background:'#F5F3FF' }}>[m
+[31m-              {['Data','Tipo','Item','Qtd','Destino/Fornec.','ResponsÃ¡vel'].map(h=>([m
+[32m+[m[32m              {['Data','Tipo','Item','Qtd','Destino/Fornec.','ResponsÃƒÂ¡vel'].map(h=>([m
+                 <th key={h} style={{ padding:'8px 10px', textAlign:'left', fontWeight:600, color:'#4C1D95', borderBottom:'0.5px solid #DDD6FE' }}>{h}</th>[m
+               ))}[m
+             </tr></thead>[m
+[36m@@ -702,11 +704,11 @@[m [mfunction TabFerramentas({ itemsFerr, movs, profile, sb, onSaved, showMsg, showEr[m
+               {movsFerr.map((m,i)=>([m
+                 <tr key={m.id||i} style={{ background:i%2===0?'#fff':'#fafaf8', borderBottom:'0.5px solid #f0ede6' }}>[m
+                   <td style={{ padding:'8px 10px', whiteSpace:'nowrap' }}>{fmtDate(m.mov_date||m.created_at)}</td>[m
+[31m-                  <td style={{ padding:'8px 10px' }}><span style={{ fontSize:11, fontWeight:600, color:m.type==='entrada'?'#065F46':'#6D28D9', background:m.type==='entrada'?'#D1FAE5':'#EDE9FE', borderRadius:4, padding:'2px 8px' }}>{m.type==='entrada'?'â–² Entrada':'â–¼ SaÃ­da'}</span></td>[m
+[31m-                  <td style={{ padding:'8px 10px', fontWeight:500 }}>{m.stock_item?.description||'â€”'}</td>[m
+[32m+[m[32m                  <td style={{ padding:'8px 10px' }}><span style={{ fontSize:11, fontWeight:600, color:m.type==='entrada'?'#065F46':'#6D28D9', background:m.type==='entrada'?'#D1FAE5':'#EDE9FE', borderRadius:4, padding:'2px 8px' }}>{m.type==='entrada'?'Ã¢â€“Â² Entrada':'Ã¢â€“Â¼ SaÃƒÂ­da'}</span></td>[m
+[32m+[m[32m                  <td style={{ padding:'8px 10px', fontWeight:500 }}>{m.stock_item?.description||'Ã¢â‚¬â€'}</td>[m
+                   <td style={{ padding:'8px 10px', fontWeight:700, textAlign:'center' }}>{m.quantity}</td>[m
+[31m-                  <td style={{ padding:'8px 10px', color:'#555' }}>{m.supplier||m.destination||'â€”'}</td>[m
+[31m-                  <td style={{ padding:'8px 10px', color:'#888', fontSize:11 }}>{m.released_by||m.created_by_name||'â€”'}</td>[m
+[32m+[m[32m                  <td style={{ padding:'8px 10px', color:'#555' }}>{m.supplier||m.destination||'Ã¢â‚¬â€'}</td>[m
+[32m+[m[32m                  <td style={{ padding:'8px 10px', color:'#888', fontSize:11 }}>{m.released_by||m.created_by_name||'Ã¢â‚¬â€'}</td>[m
+                 </tr>[m
+               ))}[m
+             </tbody>[m
+[36m@@ -728,8 +730,8 @@[m [mfunction TabNFs({ movs }) {[m
+ [m
+   return ([m
+     <div>[m
+[31m-      <h2 style={{ fontSize:16, fontWeight:600, color:'#1A478A', marginBottom:14 }}>ðŸ“ Notas Fiscais e Documentos</h2>[m
+[31m-      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por fornecedor ou NÂº NF..."[m
+[32m+[m[32m      <h2 style={{ fontSize:16, fontWeight:600, color:'#1A478A', marginBottom:14 }}>Ã°Å¸â€œÂ Notas Fiscais e Documentos</h2>[m
+[32m+[m[32m      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por fornecedor ou NÃ‚Âº NF..."[m
+         style={{ ...ST.input, marginBottom:14, maxWidth:400 }} />[m
+       {nfs.length===0 && <p style={{ color:'#888', fontSize:13 }}>Nenhuma nota fiscal registrada.</p>}[m
+       {nfs.map((m,i)=>{[m
+[36m@@ -741,23 +743,23 @@[m [mfunction TabNFs({ movs }) {[m
+               <div>[m
+                 <div style={{ display:'flex', gap:10, alignItems:'center', marginBottom:6, flexWrap:'wrap' }}>[m
+                   <span style={{ fontSize:14, fontWeight:600 }}>NF {m.nf_number||'S/N'}</span>[m
+[31m-                  <span style={{ fontSize:12, color:'#888' }}>ðŸ“… {fmtDate(m.mov_date)}</span>[m
+[32m+[m[32m                  <span style={{ fontSize:12, color:'#888' }}>Ã°Å¸â€œâ€¦ {fmtDate(m.mov_date)}</span>[m
+                   <span style={{ fontSize:12, background:'#EEF2FF', color:'#4338CA', borderRadius:4, padding:'2px 8px' }}>{m.entry_type}</span>[m
+                 </div>[m
+[31m-                <p style={{ fontSize:13, color:'#555', marginBottom:4 }}>ðŸ­ {m.supplier||'Fornecedor nÃ£o informado'}</p>[m
+[31m-                <p style={{ fontSize:12, color:'#888' }}>{itensMov.length} item(ns) Â· {total>0?fmtMoney(total):'Valor nÃ£o informado'}</p>[m
+[32m+[m[32m                <p style={{ fontSize:13, color:'#555', marginBottom:4 }}>Ã°Å¸ÂÂ­ {m.supplier||'Fornecedor nÃƒÂ£o informado'}</p>[m
+[32m+[m[32m                <p style={{ fontSize:12, color:'#888' }}>{itensMov.length} item(ns) Ã‚Â· {total>0?fmtMoney(total):'Valor nÃƒÂ£o informado'}</p>[m
+                 <div style={{ marginTop:8, display:'flex', flexWrap:'wrap', gap:6 }}>[m
+                   {itensMov.map((mv,j)=>([m
+                     <span key={j} style={{ fontSize:11, background:'#f7f5f0', borderRadius:4, padding:'2px 8px', border:'0.5px solid #e5e3dc' }}>[m
+[31m-                      {mv.stock_item?.description||'â€”'} Ã— {mv.quantity}[m
+[32m+[m[32m                      {mv.stock_item?.description||'Ã¢â‚¬â€'} Ãƒâ€” {mv.quantity}[m
+                     </span>[m
+                   ))}[m
+                 </div>[m
+               </div>[m
+               <div style={{ display:'flex', gap:8 }}>[m
+                 {m.nf_url ? <>[m
+[31m-                  <a href={m.nf_url} target="_blank" rel="noreferrer" style={{ ...ST.btn('#1A478A','#EEF2FF'), textDecoration:'none', fontSize:12, padding:'6px 12px' }}>ðŸ‘ Ver</a>[m
+[31m-                  <a href={m.nf_url} download style={{ ...ST.btn(), textDecoration:'none', fontSize:12, padding:'6px 12px' }}>â¬‡ Download</a>[m
+[32m+[m[32m                  <a href={m.nf_url} target="_blank" rel="noreferrer" style={{ ...ST.btn('#1A478A','#EEF2FF'), textDecoration:'none', fontSize:12, padding:'6px 12px' }}>Ã°Å¸â€˜Â Ver</a>[m
+[32m+[m[32m                  <a href={m.nf_url} download style={{ ...ST.btn(), textDecoration:'none', fontSize:12, padding:'6px 12px' }}>Ã¢Â¬â€¡ Download</a>[m
+                 </> : <span style={{ fontSize:12, color:'#aaa', alignSelf:'center' }}>Sem arquivo</span>}[m
+               </div>[m
+             </div>[m
+[36m@@ -775,7 +777,7 @@[m [mfunction TabHistorico({ movs, items }) {[m
+ [m
+   const filtered = useMemo(() => movs.filter(m=>{[m
+     if(typeFil==='Entradas'&&m.type!=='entrada') return false[m
+[31m-    if(typeFil==='SaÃ­das'&&m.type!=='saida')     return false[m
+[32m+[m[32m    if(typeFil==='SaÃƒÂ­das'&&m.type!=='saida')     return false[m
+     if(search){const q=search.toLowerCase();const nm=(m.stock_item?.description||'').toLowerCase();const sup=(m.supplier||m.destination||m.requester||'').toLowerCase();if(!nm.includes(q)&&!sup.includes(q)) return false}[m
+     if(catFil!=='Todas'){const cat=m.stock_item?.category||'Geral';if(cat!==catFil) return false}[m
+     return true[m
+[36m@@ -785,11 +787,11 @@[m [mfunction TabHistorico({ movs, items }) {[m
+ [m
+   return ([m
+     <div>[m
+[31m-      <h2 style={{ fontSize:16, fontWeight:600, color:'#1A478A', marginBottom:14 }}>ðŸ“‹ HistÃ³rico de MovimentaÃ§Ãµes</h2>[m
+[32m+[m[32m      <h2 style={{ fontSize:16, fontWeight:600, color:'#1A478A', marginBottom:14 }}>Ã°Å¸â€œâ€¹ HistÃƒÂ³rico de MovimentaÃƒÂ§ÃƒÂµes</h2>[m
+       <div style={{ display:'flex', gap:8, marginBottom:14, flexWrap:'wrap' }}>[m
+         <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar..." style={{ ...ST.input, maxWidth:260 }} />[m
+         <select value={typeFil} onChange={e=>setTypeFil(e.target.value)} style={{ padding:'8px 10px', borderRadius:8, border:'0.5px solid #e5e3dc', fontSize:13 }}>[m
+[31m-          {['Todos','Entradas','SaÃ­das'].map(t=><option key={t}>{t}</option>)}[m
+[32m+[m[32m          {['Todos','Entradas','SaÃƒÂ­das'].map(t=><option key={t}>{t}</option>)}[m
+         </select>[m
+         <select value={catFil} onChange={e=>setCatFil(e.target.value)} style={{ padding:'8px 10px', borderRadius:8, border:'0.5px solid #e5e3dc', fontSize:13 }}>[m
+           {allCats.map(c=><option key={c}>{c}</option>)}[m
+[36m@@ -799,26 +801,26 @@[m [mfunction TabHistorico({ movs, items }) {[m
+         <table style={{ width:'100%', borderCollapse:'collapse', fontSize:12 }}>[m
+           <thead>[m
+             <tr style={{ background:'#f1efe8' }}>[m
+[31m-              {['Data','Tipo','Material','Qtd','Fornec./Destino','NF','ResponsÃ¡vel'].map(h=>([m
+[32m+[m[32m              {['Data','Tipo','Material','Qtd','Fornec./Destino','NF','ResponsÃƒÂ¡vel'].map(h=>([m
+                 <th key={h} style={{ padding:'8px 10px', textAlign:'left', fontWeight:600, color:'#555', borderBottom:'0.5px solid #e5e3dc', whiteSpace:'nowrap' }}>{h}</th>[m
+               ))}[m
+             </tr>[m
+           </thead>[m
+           <tbody>[m
+[31m-            {filtered.length===0 && <tr><td colSpan={7} style={{ textAlign:'center', padding:'2rem', color:'#888' }}>Nenhuma movimentaÃ§Ã£o.</td></tr>}[m
+[32m+[m[32m            {filtered.length===0 && <tr><td colSpan={7} style={{ textAlign:'center', padding:'2rem', color:'#888' }}>Nenhuma movimentaÃƒÂ§ÃƒÂ£o.</td></tr>}[m
+             {filtered.map((m,i)=>([m
+               <tr key={m.id||i} style={{ background:i%2===0?'#fff':'#fafaf8', borderBottom:'0.5px solid #f0ede6' }}>[m
+                 <td style={{ padding:'8px 10px', whiteSpace:'nowrap' }}>{fmtDate(m.mov_date||m.created_at)}</td>[m
+                 <td style={{ padding:'8px 10px' }}>[m
+                   <span style={{ fontSize:11, fontWeight:600, color:m.type==='entrada'?'#065F46':'#C2410C', background:m.type==='entrada'?'#D1FAE5':'#FEE2E2', borderRadius:4, padding:'2px 8px' }}>[m
+[31m-                    {m.type==='entrada'?`â–² ${m.entry_type||'Entrada'}`:`â–¼ ${m.exit_type||'SaÃ­da'}`}[m
+[32m+[m[32m                    {m.type==='entrada'?`Ã¢â€“Â² ${m.entry_type||'Entrada'}`:`Ã¢â€“Â¼ ${m.exit_type||'SaÃƒÂ­da'}`}[m
+                   </span>[m
+                 </td>[m
+[31m-                <td style={{ padding:'8px 10px', fontWeight:500 }}>{m.stock_item?.description||'â€”'}</td>[m
+[32m+[m[32m                <td style={{ padding:'8px 10px', fontWeight:500 }}>{m.stock_item?.description||'Ã¢â‚¬â€'}</td>[m
+                 <td style={{ padding:'8px 10px', fontWeight:700, textAlign:'center' }}>{m.quantity}</td>[m
+[31m-                <td style={{ padding:'8px 10px', color:'#555' }}>{m.supplier||m.destination||'â€”'}</td>[m
+[31m-                <td style={{ padding:'8px 10px' }}>{m.nf_number?<span style={{ fontSize:11 }}>{m.nf_number}</span>:'â€”'}</td>[m
+[31m-                <td style={{ padding:'8px 10px', color:'#888', fontSize:11 }}>{m.released_by||m.created_by_name||'â€”'}</td>[m
+[32m+[m[32m                <td style={{ padding:'8px 10px', color:'#555' }}>{m.supplier||m.destination||'Ã¢â‚¬â€'}</td>[m
+[32m+[m[32m                <td style={{ padding:'8px 10px' }}>{m.nf_number?<span style={{ fontSize:11 }}>{m.nf_number}</span>:'Ã¢â‚¬â€'}</td>[m
+[32m+[m[32m                <td style={{ padding:'8px 10px', color:'#888', fontSize:11 }}>{m.released_by||m.created_by_name||'Ã¢â‚¬â€'}</td>[m
+               </tr>[m
+             ))}[m
+           </tbody>[m
+[36m@@ -851,7 +853,7 @@[m [mfunction TabCadastro({ items, sb, onSaved, showMsg, showErr, profile }) {[m
+   function editarItem(it) { setEditing(it); setForm({description:it.description,category:it.category||'Geral',unit:it.unit,quantity:it.quantity||0,min_quantity:it.min_quantity||0}); setShowForm(true) }[m
+ [m
+   async function salvar() {[m
+[31m-    if(!form.description.trim()){showErr('Informe a descriÃ§Ã£o.'); return}[m
+[32m+[m[32m    if(!form.description.trim()){showErr('Informe a descriÃƒÂ§ÃƒÂ£o.'); return}[m
+     setSaving(true)[m
+     try {[m
+       const payload={description:form.description.trim(),category:form.category,unit:form.unit,quantity:parseFloat(form.quantity)||0,min_quantity:parseFloat(form.min_quantity)||0}[m
+[36m@@ -866,24 +868,24 @@[m [mfunction TabCadastro({ items, sb, onSaved, showMsg, showErr, profile }) {[m
+     try {[m
+       await sb.from('stock_movements').delete().eq('stock_item_id',id)[m
+       await sb.from('stock_items').delete().eq('id',id)[m
+[31m-      showMsg('Item excluÃ­do.'); setDelConf(null); onSaved()[m
+[32m+[m[32m      showMsg('Item excluÃƒÂ­do.'); setDelConf(null); onSaved()[m
+     } catch(e){showErr('Erro: '+e.message)} finally{setSaving(false)}[m
+   }[m
+ [m
+   return ([m
+     <div>[m
+       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14, flexWrap:'wrap', gap:8 }}>[m
+[31m-        <h2 style={{ fontSize:16, fontWeight:600, color:'#1A478A' }}>âš™ï¸ CatÃ¡logo de Materiais</h2>[m
+[32m+[m[32m        <h2 style={{ fontSize:16, fontWeight:600, color:'#1A478A' }}>Ã¢Å¡â„¢Ã¯Â¸Â CatÃƒÂ¡logo de Materiais</h2>[m
+         <button onClick={novoItem} style={ST.btnP}>+ Novo item</button>[m
+       </div>[m
+ [m
+       {showForm && ([m
+         <div style={{ ...ST.card, border:'1px solid #1D9E75', background:'#F0FDF4', marginBottom:14 }}>[m
+[31m-          <p style={{ fontWeight:600, color:'#065F46', marginBottom:12 }}>{editing?'âœ Editar item':'+ Novo item'}</p>[m
+[32m+[m[32m          <p style={{ fontWeight:600, color:'#065F46', marginBottom:12 }}>{editing?'Ã¢Å“Â Editar item':'+ Novo item'}</p>[m
+           <div style={ST.grid2}>[m
+             <div style={{ gridColumn:'1 / -1' }}>[m
+[31m-              <label style={ST.label}>DescriÃ§Ã£o *</label>[m
+[31m-              <input value={form.description} onChange={e=>setF('description',e.target.value)} placeholder="Ex: Cabo 2,5mmÂ² FlexÃ­vel" style={ST.input} />[m
+[32m+[m[32m              <label style={ST.label}>DescriÃƒÂ§ÃƒÂ£o *</label>[m
+[32m+[m[32m              <input value={form.description} onChange={e=>setF('description',e.target.value)} placeholder="Ex: Cabo 2,5mmÃ‚Â² FlexÃƒÂ­vel" style={ST.input} />[m
+             </div>[m
+             <div>[m
+               <label style={ST.label}>Categoria</label>[m
+[36m@@ -902,14 +904,14 @@[m [mfunction TabCadastro({ items, sb, onSaved, showMsg, showErr, profile }) {[m
+               <input type="number" value={form.quantity} onChange={e=>setF('quantity',e.target.value)} min="0" style={ST.input} />[m
+             </div>[m
+             <div>[m
+[31m-              <label style={ST.label}>Estoque mÃ­nimo</label>[m
+[32m+[m[32m              <label style={ST.label}>Estoque mÃƒÂ­nimo</label>[m
+               <input type="number" value={form.min_quantity} onChange={e=>setF('min_quantity',e.target.value)} min="0" style={ST.input} />[m
+             </div>[m
+           </div>[m
+           <div style={{ display:'flex', gap:8, justifyContent:'flex-end', marginTop:12 }}>[m
+             <button onClick={()=>{setShowForm(false);setEditing(null)}} style={ST.btn()}>Cancelar</button>[m
+             <button onClick={salvar} disabled={saving} style={{ ...ST.btnP, opacity:saving?.6:1 }}>[m
+[31m-              {saving?'Salvando...':editing?'âœ“ Salvar':'âœ“ Cadastrar'}[m
+[32m+[m[32m              {saving?'Salvando...':editing?'Ã¢Å“â€œ Salvar':'Ã¢Å“â€œ Cadastrar'}[m
+             </button>[m
+           </div>[m
+         </div>[m
+[36m@@ -926,7 +928,7 @@[m [mfunction TabCadastro({ items, sb, onSaved, showMsg, showErr, profile }) {[m
+         <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>[m
+           <thead>[m
+             <tr style={{ background:'#f1efe8' }}>[m
+[31m-              {['Categoria','DescriÃ§Ã£o','Unid.','Saldo','MÃ­nimo','Status','AÃ§Ãµes'].map(h=>([m
+[32m+[m[32m              {['Categoria','DescriÃƒÂ§ÃƒÂ£o','Unid.','Saldo','MÃƒÂ­nimo','Status','AÃƒÂ§ÃƒÂµes'].map(h=>([m
+                 <th key={h} style={{ padding:'8px 12px', textAlign:'left', fontWeight:600, fontSize:12, color:'#555', borderBottom:'0.5px solid #e5e3dc' }}>{h}</th>[m
+               ))}[m
+             </tr>[m
+[36m@@ -940,12 +942,12 @@[m [mfunction TabCadastro({ items, sb, onSaved, showMsg, showErr, profile }) {[m
+                   <td style={{ padding:'8px 12px', fontWeight:500 }}>{item.description}</td>[m
+                   <td style={{ padding:'8px 12px', color:'#888' }}>{item.unit}</td>[m
+                   <td style={{ padding:'8px 12px', fontWeight:700, color:(item.quantity||0)<=0?'#DC2626':'#111' }}>{item.quantity??0}</td>[m
+[31m-                  <td style={{ padding:'8px 12px', color:'#888' }}>{item.min_quantity||'â€”'}</td>[m
+[32m+[m[32m                  <td style={{ padding:'8px 12px', color:'#888' }}>{item.min_quantity||'Ã¢â‚¬â€'}</td>[m
+                   <td style={{ padding:'8px 12px' }}><StatusBadge item={item} /></td>[m
+                   <td style={{ padding:'8px 12px' }}>[m
+                     <div style={{ display:'flex', gap:6 }}>[m
+[31m-                      <button onClick={()=>editarItem(item)} style={{ ...ST.btn(), fontSize:11, padding:'4px 10px' }}>âœ</button>[m
+[31m-                      <button onClick={()=>setDelConf(item.id)} style={{ fontSize:11, padding:'4px 8px', borderRadius:6, border:'0.5px solid #FCA5A5', background:'#FEE2E2', color:'#991B1B', cursor:'pointer' }}>âœ•</button>[m
+[32m+[m[32m                      <button onClick={()=>editarItem(item)} style={{ ...ST.btn(), fontSize:11, padding:'4px 10px' }}>Ã¢Å“Â</button>[m
+[32m+[m[32m                      <button onClick={()=>setDelConf(item.id)} style={{ fontSize:11, padding:'4px 8px', borderRadius:6, border:'0.5px solid #FCA5A5', background:'#FEE2E2', color:'#991B1B', cursor:'pointer' }}>Ã¢Å“â€¢</button>[m
+                     </div>[m
+                   </td>[m
+                 </tr>[m
+[36m@@ -953,9 +955,9 @@[m [mfunction TabCadastro({ items, sb, onSaved, showMsg, showErr, profile }) {[m
+                   <tr key={item.id+'_d'}>[m
+                     <td colSpan={7} style={{ background:'#FFF7ED', padding:'10px 12px', borderBottom:'0.5px solid #FCD34D' }}>[m
+                       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>[m
+[31m-                        <p style={{ fontSize:13, color:'#92400E' }}>Confirma exclusÃ£o de <strong>{item.description}</strong>?</p>[m
+[32m+[m[32m                        <p style={{ fontSize:13, color:'#92400E' }}>Confirma exclusÃƒÂ£o de <strong>{item.description}</strong>?</p>[m
+                         <div style={{ display:'flex', gap:6 }}>[m
+[31m-                          <button onClick={()=>setDelConf(null)} style={ST.btn()}>NÃ£o</button>[m
+[32m+[m[32m                          <button onClick={()=>setDelConf(null)} style={ST.btn()}>NÃƒÂ£o</button>[m
+                           <button onClick={()=>excluir(item.id)} disabled={saving}[m
+                             style={{ padding:'6px 14px', borderRadius:8, border:'none', background:'#DC2626', color:'#fff', cursor:'pointer', fontSize:13 }}>[m
+                             Sim, excluir[m
