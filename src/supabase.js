@@ -164,7 +164,7 @@ export async function fetchArchivedOSByElectrician(electricianId) {
     `)
     .eq('electrician_id', electricianId)
     .eq('archived_by_electrician', true)
-    .order('updated_at', { ascending: false })
+    .order('created_at', { ascending: false })
   if (error) throw error
   return data || []
 }
