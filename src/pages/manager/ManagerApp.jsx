@@ -204,7 +204,7 @@ export default function ManagerApp({ profile }) {
       {/* MAIN */}
       <main style={{ flex: 1, padding: '1.5rem', overflowY: 'auto', maxHeight: '100dvh' }}>
         {loading && <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}><div className="spinner" style={{ width: 32, height: 32 }} /></div>}
-        {!loading && view === 'dash'    && <Dashboard osList={osList} onOpen={openOS} onNew={() => setView('create')} profile={profile} onOSUpdated={refreshOS} />}
+        {!loading && view === 'dash'    && <Dashboard osList={osList} onOpen={openOS} onNew={() => setView('create')} profile={profile} onUpdated={refreshOS} />}
         {!loading && view === 'create'  && <CreateOS locs={locs} elecs={elecs} profile={profile} onCreated={(os) => { setOsList(p => [os, ...p]); setView('dash') }} onBack={() => setView('dash')} />}
         {!loading && view === 'detail'  && selOS && <OSDetail os={selOS} profile={profile} elecs={elecs} locs={locs} onUpdated={refreshOS} onDeleted={deleteOS} onBack={() => setView('dash')} />}
         {!loading && view === 'schools' && <SchoolStatus osList={osList} locs={locs} />}
