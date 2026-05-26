@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { StatusBadge, PriorityBadge, fmt, fmtDT } from '../../components/Badge'
-import { supabase } from '../../supabase'
+import { supabase, updateOS, addHistory } from '../../supabase'
 
-export default function Dashboard({ osList, onOpen, onNew, onUpdated }) {
+export default function Dashboard({ osList, onOpen, onNew, onUpdated, profile }) {
   const [filter,    setFilter]    = useState('Todas')
   const [tab,       setTab]       = useState('andamento')
   const [dismissed, setDismissed] = useState([])
@@ -70,8 +70,182 @@ export default function Dashboard({ osList, onOpen, onNew, onUpdated }) {
     finally { setSavingMat(false) }
   }
 
+  // â”€â”€ Estados de estoque + toast + processamento â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const [stockItems,   setStockItems]   = useState([])
+  const [toast,        setToast]        = useState(null)
+  const [processingId, setProcessingId] = useState(null)
+
+  // â”€â”€ Carrega estoque ao montar (para preview + baixa) â”€â”€
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase.from('stock_items').select('*')
+        setStockItems(data || [])
+      } catch (e) { console.error('Erro ao carregar estoque:', e) }
+    })()
+  }, [])
+
+  // â”€â”€ Match fuzzy identico ao StockManager / OSDetail â”€â”€
+  function matchStockItem(itemName) {
+    const nome = (itemName || '').toLowerCase().trim()
+    if (!nome) return null
+    return stockItems.find(i => {
+      const desc = (i.description || '').toLowerCase().trim()
+      if (!desc) return false
+      return desc.includes(nome) || nome.includes(desc.substring(0, 8))
+    }) || null
+  }
+
+  function showToast(type, message) {
+    setToast({ type, message })
+    setTimeout(() => setToast(null), 7000)
+  }
+
+  // â”€â”€ CONFIRMAR ENTREGA EM LOTE â€” baixa automatica de todos â”€â”€
+  async function handleBatchDelivery(os) {
+    const mats = os.materials_needed || []
+    const pendentes = mats.filter(m => !m.delivered)
+    if (pendentes.length === 0) {
+      showToast('warning', 'Todos os materiais ja foram entregues.')
+      return
+    }
+
+    const preview = pendentes.map(m => {
+      const stockMatch = matchStockItem(m.item)
+      const qty   = Number(m.qty) || 0
+      const saldo = stockMatch ? (Number(stockMatch.quantity) || 0) : 0
+      const podeBaixar = stockMatch && saldo >= qty && qty > 0
+      return { material: m, stockMatch, qty, saldo, podeBaixar }
+    })
+
+    const baixar   = preview.filter(p => p.podeBaixar)
+    const semBaixa = preview.filter(p => !p.podeBaixar)
+    const resumoSemBaixa = semBaixa.length > 0
+      ? '\n\u26A0 ' + semBaixa.length + ' item(ns) SEM baixa: ' + semBaixa.map(p => p.material.item).join(', ')
+      : ''
+
+    if (!confirm(
+      'Confirmar entrega de TODOS os materiais da ' + os.number + '?\n\n' +
+      '\u2713 ' + baixar.length + ' item(ns) com baixa automatica no estoque' +
+      resumoSemBaixa +
+      '\n\nApos confirmar, a OS passa para "Material Entregue".'
+    )) return
+
+    setProcessingId(os.id)
+    try {
+      let baixados = 0
+      let avisos   = 0
+      const stockUpdates = []
+      const matsAtualizados = []
+
+      for (const m of mats) {
+        if (m.delivered) { matsAtualizados.push(m); continue }
+
+        const qty = Number(m.qty) || 0
+        const stockMatch = matchStockItem(m.item)
+
+        let stockMovementId = null
+        let stockWarning    = null
+        let baixouQtd       = 0
+        let stockItemDesc   = null
+
+        if (stockMatch) {
+          const saldoAtual = Number(stockMatch.quantity) || 0
+          if (saldoAtual >= qty && qty > 0) {
+            const novoSaldo = saldoAtual - qty
+            const { data: movement, error: movErr } = await supabase
+              .from('stock_movements')
+              .insert({
+                stock_item_id:   stockMatch.id,
+                type:            'saida',
+                quantity:        qty,
+                notes:           'OS ' + os.number + ' \u2014 Entrega aprovada (lote)',
+                location_name:   os.location?.name || null,
+                created_by_name: profile?.name || 'Gestor',
+              })
+              .select()
+              .single()
+            if (movErr) throw movErr
+
+            const { error: updErr } = await supabase
+              .from('stock_items')
+              .update({ quantity: novoSaldo, updated_at: new Date().toISOString() })
+              .eq('id', stockMatch.id)
+            if (updErr) throw updErr
+
+            stockMovementId = movement.id
+            baixouQtd       = qty
+            stockItemDesc   = stockMatch.description
+            stockUpdates.push({ id: stockMatch.id, quantity: novoSaldo })
+            stockMatch.quantity = novoSaldo
+            baixados++
+          } else {
+            stockWarning  = 'saldo_insuficiente:' + saldoAtual
+            stockItemDesc = stockMatch.description
+            avisos++
+          }
+        } else {
+          stockWarning = 'sem_match'
+          avisos++
+        }
+
+        matsAtualizados.push({
+          ...m,
+          delivered:          true,
+          delivered_at:       new Date().toISOString(),
+          delivered_qty:      baixouQtd,
+          stock_movement_id:  stockMovementId,
+          stock_item_desc:    stockItemDesc,
+          stock_warning:      stockWarning,
+        })
+      }
+
+      setStockItems(prev => prev.map(i => {
+        const upd = stockUpdates.find(u => u.id === i.id)
+        return upd ? { ...i, quantity: upd.quantity } : i
+      }))
+
+      const updates = { materials_needed: matsAtualizados }
+      if (os.status === 'Aguardando Material') {
+        updates.status = 'Material Entregue'
+        await addHistory(os.id, 'Material Entregue', profile?.name || 'Gestor', profile?.id)
+      }
+
+      const updated = await updateOS(os.id, updates)
+      const merged  = { ...os, ...updated, materials_needed: matsAtualizados, status: updates.status || os.status }
+
+      if (onUpdated) onUpdated(merged)
+
+      let msg = '\u2713 Entrega confirmada para ' + os.number
+      if (baixados > 0) msg += ' \u2014 ' + baixados + ' item(ns) baixado(s) no estoque'
+      if (avisos > 0)   msg += ' \u00B7 \u26A0 ' + avisos + ' sem baixa'
+      showToast(avisos > 0 ? 'warning' : 'success', msg)
+      setMatOS(null)
+    } catch (e) {
+      alert('Erro ao confirmar entrega: ' + e.message)
+    } finally {
+      setProcessingId(null)
+    }
+  }
+
   return (
     <div>
+      {toast && (
+        <div style={{
+          position: 'fixed', top: 20, right: 20, zIndex: 9999, maxWidth: 460,
+          padding: '12px 16px', borderRadius: 10,
+          background: toast.type === 'success' ? '#D1FAE5' : toast.type === 'warning' ? '#FEF3C7' : '#FEE2E2',
+          border: '0.5px solid ' + (toast.type === 'success' ? '#6EE7B7' : toast.type === 'warning' ? '#FDE68A' : '#FCA5A5'),
+          borderLeft: '4px solid ' + (toast.type === 'success' ? '#065F46' : toast.type === 'warning' ? '#92400E' : '#991B1B'),
+          boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
+          fontSize: 13, lineHeight: 1.5,
+          color: toast.type === 'success' ? '#065F46' : toast.type === 'warning' ? '#92400E' : '#991B1B',
+        }}>
+          {toast.message}
+          <button onClick={() => setToast(null)} style={{ position: 'absolute', top: 6, right: 8, background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'inherit', opacity: 0.6 }}>x</button>
+        </div>
+      )}
+
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
         <div>
           <h1 style={{ fontSize: 20, fontWeight: 500, marginBottom: 2 }}>Ordens de Serviço</h1>
@@ -341,7 +515,14 @@ Eng. Valter Alves — CREA 0519903544/D`)
                         </button>
 
                         <button className="btn" style={{ fontSize: 12 }} onClick={() => onOpen(matOS)}>Ver OS completa</button>
-                        <button className="btn btn-success" style={{ fontSize: 12 }} onClick={() => onOpen(matOS)}>✓ Confirmar entrega</button>
+                        <button
+                          className={"btn btn-success" + (processingId === matOS.id ? " btn-loading" : "")}
+                          style={{ fontSize: 12 }}
+                          disabled={processingId === matOS.id}
+                          onClick={() => handleBatchDelivery(matOS)}
+                        >
+                          {processingId === matOS.id ? 'Processando...' : '\u2713 Confirmar entrega'}
+                        </button>
                       </div>
                     )}
                   </div>
