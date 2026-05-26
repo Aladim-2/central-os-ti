@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { signOut, fetchOS, fetchLocations, fetchElectricians, subscribeOS } from '../../supabase'
 import { Avatar } from '../../components/Badge'
 import Dashboard from './Dashboard'
+import ElectricianPanel from './ElectricianPanel'
 import CreateOS from './CreateOS'
 import OSDetail from './OSDetail'
 import SchoolStatus from './SchoolStatus'
@@ -185,6 +186,7 @@ export default function ManagerApp({ profile }) {
             )}
           </button>
           <button className={`sidebar-link${view === 'create' ? ' active' : ''}`} onClick={() => setView('create')}>➕ Nova OS</button>
+          <button className={`sidebar-link${view === 'electricians' ? ' active' : ''}`} onClick={() => setView('electricians')}>⚡ Eletricistas</button>
           <button className={`sidebar-link${view === 'schools' ? ' active' : ''}`} onClick={() => setView('schools')}>🏫 Situação Escolas</button>
           <button className={`sidebar-link${view === 'reports' ? ' active' : ''}`} onClick={() => setView('reports')}>📄 Relatórios</button>
           <button className={`sidebar-link${view === 'stock' ? ' active' : ''}`} onClick={() => setView('stock')}>📦 Estoque</button>
@@ -210,6 +212,7 @@ export default function ManagerApp({ profile }) {
         {!loading && view === 'schools' && <SchoolStatus osList={osList} locs={locs} />}
         {!loading && view === 'reports' && <ReportGenerator osList={osList} locs={locs} elecs={elecs} profile={profile} />}
         {!loading && view === 'stock'   && <StockManager profile={profile} osList={osList} />}
+        {!loading && view === 'electricians' && <ElectricianPanel osList={osList} elecs={elecs} />}
         {!loading && view === 'map'     && <MapView elecs={elecs} osList={osList} />}
         {view === 'users' && <UserManager />}
       </main>
