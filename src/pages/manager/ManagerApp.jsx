@@ -5,7 +5,6 @@ import Dashboard from './Dashboard'
 import CreateOS from './CreateOS'
 import OSDetail from './OSDetail'
 import SchoolStatus from './SchoolStatus'
-import ElectricianPanel from './ElectricianPanel'
 import UserManager from './UserManager'
 import ReportGenerator from './ReportGenerator'
 import MapView from './MapView'
@@ -187,7 +186,6 @@ export default function ManagerApp({ profile }) {
           </button>
           <button className={`sidebar-link${view === 'create' ? ' active' : ''}`} onClick={() => setView('create')}>➕ Nova OS</button>
           <button className={`sidebar-link${view === 'schools' ? ' active' : ''}`} onClick={() => setView('schools')}>🏫 Situação Escolas</button>
-          <button className={`sidebar-link${view === 'electricians' ? ' active' : ''}`} onClick={() => setView('electricians')}>👷 Eletricistas</button>
           <button className={`sidebar-link${view === 'reports' ? ' active' : ''}`} onClick={() => setView('reports')}>📄 Relatórios</button>
           <button className={`sidebar-link${view === 'stock' ? ' active' : ''}`} onClick={() => setView('stock')}>📦 Estoque</button>
           <button className={`sidebar-link${view === 'map' ? ' active' : ''}`} onClick={() => setView('map')}>🗺️ Mapa da equipe</button>
@@ -206,14 +204,13 @@ export default function ManagerApp({ profile }) {
       {/* MAIN */}
       <main style={{ flex: 1, padding: '1.5rem', overflowY: 'auto', maxHeight: '100dvh' }}>
         {loading && <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}><div className="spinner" style={{ width: 32, height: 32 }} /></div>}
-        {!loading && view === 'dash'         && <Dashboard osList={osList} onOpen={openOS} onNew={() => setView('create')} />}
-        {!loading && view === 'create'       && <CreateOS locs={locs} elecs={elecs} profile={profile} onCreated={(os) => { setOsList(p => [os, ...p]); setView('dash') }} onBack={() => setView('dash')} />}
-        {!loading && view === 'detail'       && selOS && <OSDetail os={selOS} profile={profile} elecs={elecs} locs={locs} onUpdated={refreshOS} onDeleted={deleteOS} onBack={() => setView('dash')} />}
-        {!loading && view === 'schools'      && <SchoolStatus osList={osList} locs={locs} onOpenOS={openOS} />}
-        {!loading && view === 'electricians' && <ElectricianPanel elecs={elecs} osList={osList} onOpenOS={openOS} />}
-        {!loading && view === 'reports'      && <ReportGenerator osList={osList} locs={locs} elecs={elecs} profile={profile} />}
-        {!loading && view === 'stock'        && <StockManager profile={profile} osList={osList} />}
-        {!loading && view === 'map'          && <MapView elecs={elecs} osList={osList} />}
+        {!loading && view === 'dash'    && <Dashboard osList={osList} onOpen={openOS} onNew={() => setView('create')} profile={profile} onOSUpdated={refreshOS} />}
+        {!loading && view === 'create'  && <CreateOS locs={locs} elecs={elecs} profile={profile} onCreated={(os) => { setOsList(p => [os, ...p]); setView('dash') }} onBack={() => setView('dash')} />}
+        {!loading && view === 'detail'  && selOS && <OSDetail os={selOS} profile={profile} elecs={elecs} locs={locs} onUpdated={refreshOS} onDeleted={deleteOS} onBack={() => setView('dash')} />}
+        {!loading && view === 'schools' && <SchoolStatus osList={osList} locs={locs} />}
+        {!loading && view === 'reports' && <ReportGenerator osList={osList} locs={locs} elecs={elecs} profile={profile} />}
+        {!loading && view === 'stock'   && <StockManager profile={profile} osList={osList} />}
+        {!loading && view === 'map'     && <MapView elecs={elecs} osList={osList} />}
         {view === 'users' && <UserManager />}
       </main>
     </div>
