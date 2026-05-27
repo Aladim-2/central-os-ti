@@ -1,13 +1,15 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { updateOS, addHistory, deletePhoto, supabase } from '../../supabase'
 import { StatusBadge, PriorityBadge, fmt, fmtDT } from '../../components/Badge'
 
 export default function OSDetail({ os: initialOS, profile, elecs, locs, onUpdated, onBack, onDeleted }) {
-  const [os,      setOs]      = useState(initialOS)
-  const [tab,     setTab]     = useState('info')
-  const [loading, setLoading] = useState(false)
-  const [editing, setEditing] = useState(false)
-  const [editF,   setEditF]   = useState({
+  const [os,         setOs]         = useState(initialOS)
+  const [tab,        setTab]        = useState('info')
+  const [loading,    setLoading]    = useState(false)
+  const [editing,    setEditing]    = useState(false)
+  const [stockItems, setStockItems] = useState([])
+  const [toast,      setToast]      = useState(null) // { type, message }
+  const [editF,      setEditF]      = useState({
     location_id:    initialOS.location_id    || '',
     sector:         initialOS.sector         || '',
     electrician_id: initialOS.electrician_id || '',
@@ -18,6 +20,32 @@ export default function OSDetail({ os: initialOS, profile, elecs, locs, onUpdate
   })
 
   const el = elecs.find(u => u.id === os.electrician_id)
+
+  // ── Carrega itens do estoque ao montar (para match na entrega) ──
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase.from('stock_items').select('*')
+        setStockItems(data || [])
+      } catch (e) { console.error('Erro ao carregar estoque:', e) }
+    })()
+  }, [])
+
+  // ── Match fuzzy: mesma lógica do StockManager ──
+  function matchStockItem(itemName) {
+    const nome = (itemName || '').toLowerCase().trim()
+    if (!nome) return null
+    return stockItems.find(i => {
+      const desc = (i.description || '').toLowerCase().trim()
+      if (!desc) return false
+      return desc.includes(nome) || nome.includes(desc.substring(0, 8))
+    }) || null
+  }
+
+  function showToast(type, message) {
+    setToast({ type, message })
+    setTimeout(() => setToast(null), 5500)
+  }
 
   async function saveEdit() {
     setLoading(true)
@@ -59,10 +87,85 @@ export default function OSDetail({ os: initialOS, profile, elecs, locs, onUpdate
     }
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // CONFIRMAR ENTREGA — com baixa automática no estoque
+  // ─────────────────────────────────────────────────────────────
   async function approveDelivery(matId) {
     setLoading(true)
     try {
-      const mats   = (os.materials_needed || []).map(m => m.id === matId ? { ...m, delivered: true } : m)
+      const material = (os.materials_needed || []).find(m => m.id === matId)
+      if (!material) { setLoading(false); return }
+
+      const qty = Number(material.qty) || 0
+      const stockMatch = matchStockItem(material.item)
+
+      let stockMovementId = null
+      let stockWarning    = null
+      let baixouQtd       = 0
+      let stockItemDesc   = null
+      let toastMsg        = ''
+      let toastType       = 'success'
+
+      if (stockMatch) {
+        const saldoAtual = Number(stockMatch.quantity) || 0
+        if (saldoAtual >= qty && qty > 0) {
+          // ▼ TEM SALDO → baixa automática
+          const novoSaldo = saldoAtual - qty
+          const { data: movement, error: movErr } = await supabase
+            .from('stock_movements')
+            .insert({
+              stock_item_id:   stockMatch.id,
+              type:            'saida',
+              quantity:        qty,
+              notes:           `OS ${os.number} — Entrega aprovada`,
+              location_name:   os.location?.name || null,
+              created_by_name: profile?.name || 'Gestor',
+            })
+            .select()
+            .single()
+          if (movErr) throw movErr
+
+          const { error: updErr } = await supabase
+            .from('stock_items')
+            .update({ quantity: novoSaldo, updated_at: new Date().toISOString() })
+            .eq('id', stockMatch.id)
+          if (updErr) throw updErr
+
+          stockMovementId = movement.id
+          baixouQtd       = qty
+          stockItemDesc   = stockMatch.description
+          setStockItems(prev => prev.map(i => i.id === stockMatch.id ? { ...i, quantity: novoSaldo } : i))
+          toastMsg  = `✓ Baixa automática: ${qty} ${material.unit || ''} de "${stockMatch.description}" — saldo restante: ${novoSaldo}`
+          toastType = 'success'
+        } else {
+          // ▼ SALDO INSUFICIENTE → marca entregue, mas sem baixa
+          stockWarning  = `saldo_insuficiente:${saldoAtual}`
+          stockItemDesc = stockMatch.description
+          toastMsg  = `⚠ Saldo insuficiente para "${material.item}" (estoque: ${saldoAtual} ${stockMatch.unit || ''}, pedido: ${qty}). Material marcado como entregue, sem baixa automática.`
+          toastType = 'warning'
+        }
+      } else {
+        // ▼ SEM MATCH NO ESTOQUE
+        stockWarning = 'sem_match'
+        toastMsg  = `⚠ "${material.item}" não foi encontrado no estoque. Material marcado como entregue, sem baixa automática.`
+        toastType = 'warning'
+      }
+
+      // Atualiza o material com flags de rastreio
+      const mats = (os.materials_needed || []).map(m =>
+        m.id === matId
+          ? {
+              ...m,
+              delivered:          true,
+              delivered_at:       new Date().toISOString(),
+              delivered_qty:      baixouQtd,
+              stock_movement_id:  stockMovementId,
+              stock_item_desc:    stockItemDesc,
+              stock_warning:      stockWarning,
+            }
+          : m
+      )
+
       const allDel = mats.every(m => m.delivered)
       const updates = { materials_needed: mats }
       if (allDel && os.status === 'Aguardando Material') {
@@ -73,8 +176,96 @@ export default function OSDetail({ os: initialOS, profile, elecs, locs, onUpdate
       const merged  = { ...os, ...updated, materials_needed: mats }
       setOs(merged)
       onUpdated(merged)
+      showToast(toastType, toastMsg)
     } catch (e) {
       alert('Erro: ' + e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // ESTORNAR ENTREGA — desfaz a baixa no estoque
+  // ─────────────────────────────────────────────────────────────
+  async function revertDelivery(matId) {
+    const material = (os.materials_needed || []).find(m => m.id === matId)
+    if (!material) return
+    const temBaixa = !!material.stock_movement_id
+    const msgConfirm = temBaixa
+      ? `Desmarcar "${material.item}" como entregue?\n\nO saldo de ${material.delivered_qty || material.qty} ${material.unit || ''} será ESTORNADO no estoque.`
+      : `Desmarcar "${material.item}" como entregue?\n\n(Não houve baixa no estoque, nada a estornar.)`
+    if (!confirm(msgConfirm)) return
+
+    setLoading(true)
+    try {
+      // Se houve baixa, estornar (entrada de estoque)
+      if (temBaixa) {
+        const { data: mov } = await supabase
+          .from('stock_movements')
+          .select('*')
+          .eq('id', material.stock_movement_id)
+          .single()
+
+        if (mov) {
+          // Cria movimento de entrada (estorno)
+          await supabase.from('stock_movements').insert({
+            stock_item_id:   mov.stock_item_id,
+            type:            'entrada',
+            quantity:        mov.quantity,
+            notes:           `ESTORNO — OS ${os.number} — Entrega desmarcada`,
+            location_name:   os.location?.name || null,
+            created_by_name: profile?.name || 'Gestor',
+          })
+
+          // Soma de volta no saldo
+          const { data: stockItem } = await supabase
+            .from('stock_items')
+            .select('quantity')
+            .eq('id', mov.stock_item_id)
+            .single()
+
+          if (stockItem) {
+            const novoSaldo = (Number(stockItem.quantity) || 0) + Number(mov.quantity)
+            await supabase
+              .from('stock_items')
+              .update({ quantity: novoSaldo, updated_at: new Date().toISOString() })
+              .eq('id', mov.stock_item_id)
+            setStockItems(prev => prev.map(i => i.id === mov.stock_item_id ? { ...i, quantity: novoSaldo } : i))
+          }
+        }
+      }
+
+      // Limpa flags do material
+      const mats = (os.materials_needed || []).map(m =>
+        m.id === matId
+          ? {
+              ...m,
+              delivered:          false,
+              delivered_at:       null,
+              delivered_qty:      0,
+              stock_movement_id:  null,
+              stock_item_desc:    null,
+              stock_warning:      null,
+            }
+          : m
+      )
+
+      // Se status era "Material Entregue", volta para "Aguardando Material"
+      const updates = { materials_needed: mats }
+      if (os.status === 'Material Entregue') {
+        updates.status = 'Aguardando Material'
+        await addHistory(os.id, 'Aguardando Material', profile.name, profile.id)
+      }
+
+      const updated = await updateOS(os.id, updates)
+      const merged  = { ...os, ...updated, materials_needed: mats }
+      setOs(merged)
+      onUpdated(merged)
+      showToast('success', temBaixa
+        ? `↩ Entrega desmarcada e ${material.delivered_qty || material.qty} ${material.unit || ''} estornados no estoque`
+        : `↩ Entrega desmarcada (sem estorno — não havia baixa)`)
+    } catch (e) {
+      alert('Erro ao estornar: ' + e.message)
     } finally {
       setLoading(false)
     }
@@ -168,6 +359,25 @@ export default function OSDetail({ os: initialOS, profile, elecs, locs, onUpdate
 
   return (
     <div style={{ maxWidth: 760 }}>
+      {/* TOAST FLUTUANTE */}
+      {toast && (
+        <div style={{
+          position: 'fixed', top: 20, right: 20, zIndex: 9999, maxWidth: 420,
+          padding: '12px 16px', borderRadius: 10,
+          background: toast.type === 'success' ? '#D1FAE5' : toast.type === 'warning' ? '#FEF3C7' : '#FEE2E2',
+          border: `0.5px solid ${toast.type === 'success' ? '#6EE7B7' : toast.type === 'warning' ? '#FDE68A' : '#FCA5A5'}`,
+          borderLeft: `4px solid ${toast.type === 'success' ? '#065F46' : toast.type === 'warning' ? '#92400E' : '#991B1B'}`,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
+          fontSize: 13, lineHeight: 1.5,
+          color: toast.type === 'success' ? '#065F46' : toast.type === 'warning' ? '#92400E' : '#991B1B',
+          animation: 'slideInRight 0.3s ease',
+        }}>
+          <style>{`@keyframes slideInRight{from{transform:translateX(120%);opacity:0}to{transform:translateX(0);opacity:1}}`}</style>
+          {toast.message}
+          <button onClick={() => setToast(null)} style={{ position: 'absolute', top: 6, right: 8, background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: 'inherit', opacity: 0.6 }}>✕</button>
+        </div>
+      )}
+
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: '1rem', flexWrap: 'wrap' }}>
         <button className="btn" onClick={onBack} style={{ padding: '6px 10px' }}>‹ Voltar</button>
         <span className="mono">{os.number}</span>
@@ -211,14 +421,80 @@ export default function OSDetail({ os: initialOS, profile, elecs, locs, onUpdate
       {tab === 'mat' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {mats.length === 0 && <div className="card"><p style={{ color: '#888780', fontSize: 13 }}>Nenhum material solicitado.</p></div>}
-          {mats.map(m => (
-            <div key={m.id} className="card">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div><p style={{ fontSize: 14, fontWeight: 500, marginBottom: 2 }}>{m.item}</p><p style={{ fontSize: 12, color: '#888780' }}>{m.qty} {m.unit}</p></div>
-                {m.delivered ? <span style={{ fontSize: 12, color: '#065F46' }}>✓ Entregue</span> : <button className="btn btn-success" style={{ fontSize: 12, padding: '5px 12px' }} onClick={() => approveDelivery(m.id)} disabled={loading}>Confirmar entrega</button>}
+
+          {mats.map(m => {
+            const stockMatch = !m.delivered ? matchStockItem(m.item) : null
+            const previewSaldo = stockMatch ? Number(stockMatch.quantity) || 0 : null
+            const previewQty   = Number(m.qty) || 0
+            const previewOk    = stockMatch && previewSaldo >= previewQty
+
+            return (
+              <div key={m.id} className="card">
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 14, fontWeight: 500, marginBottom: 2 }}>{m.item}</p>
+                    <p style={{ fontSize: 12, color: '#888780' }}>{m.qty} {m.unit}</p>
+
+                    {/* Pré-visualização do que vai acontecer no estoque (apenas se não entregue) */}
+                    {!m.delivered && stockMatch && (
+                      <p style={{ fontSize: 11, marginTop: 4, color: previewOk ? '#065F46' : '#92400E' }}>
+                        {previewOk
+                          ? `✓ No estoque: "${stockMatch.description}" (saldo ${previewSaldo}) — será baixado automaticamente`
+                          : `⚠ Saldo insuficiente em "${stockMatch.description}" (estoque: ${previewSaldo}) — entregará sem baixar`}
+                      </p>
+                    )}
+                    {!m.delivered && !stockMatch && (
+                      <p style={{ fontSize: 11, marginTop: 4, color: '#92400E' }}>
+                        ⚠ Sem correspondência no estoque — entregará sem baixar
+                      </p>
+                    )}
+
+                    {/* Info de entrega já realizada */}
+                    {m.delivered && m.stock_movement_id && (
+                      <p style={{ fontSize: 11, marginTop: 4, color: '#065F46' }}>
+                        ✓ Baixado do estoque: {m.delivered_qty || m.qty} {m.unit || ''} de "{m.stock_item_desc || '—'}"
+                        {m.delivered_at && ` · ${fmtDT(m.delivered_at)}`}
+                      </p>
+                    )}
+                    {m.delivered && !m.stock_movement_id && m.stock_warning && (
+                      <p style={{ fontSize: 11, marginTop: 4, color: '#92400E', background: '#FEF3C7', padding: '3px 7px', borderRadius: 4, display: 'inline-block' }}>
+                        ⚠ Entregue SEM baixa no estoque
+                        {m.stock_warning === 'sem_match' && ' (item não cadastrado)'}
+                        {m.stock_warning?.startsWith('saldo_insuficiente') && ` (saldo era ${m.stock_warning.split(':')[1]})`}
+                        {m.delivered_at && ` · ${fmtDT(m.delivered_at)}`}
+                      </p>
+                    )}
+                  </div>
+
+                  <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
+                    {m.delivered ? (
+                      <>
+                        <span style={{ fontSize: 12, color: '#065F46', fontWeight: 600 }}>✓ Entregue</span>
+                        <button
+                          onClick={() => revertDelivery(m.id)}
+                          disabled={loading}
+                          style={{
+                            fontSize: 10, padding: '3px 8px', borderRadius: 6,
+                            border: '0.5px solid #FCA5A5', background: '#FEF2F2', color: '#991B1B',
+                            cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.5 : 1,
+                          }}
+                          title="Desfazer entrega e estornar saldo no estoque"
+                        >↩ Desmarcar</button>
+                      </>
+                    ) : (
+                      <button
+                        className="btn btn-success"
+                        style={{ fontSize: 12, padding: '5px 12px' }}
+                        onClick={() => approveDelivery(m.id)}
+                        disabled={loading}
+                      >Confirmar entrega</button>
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
+
           {used.length > 0 && <div style={{ marginTop: 8 }}><p className="label" style={{ marginBottom: 8 }}>Materiais utilizados</p>{used.map((m, i) => <div key={i} className="card" style={{ marginBottom: 6, padding: '8px 12px' }}><p style={{ fontSize: 13 }}>{m.qty}x {m.item}</p></div>)}</div>}
         </div>
       )}
