@@ -116,6 +116,16 @@ export default function ElectricianApp({ profile }) {
   const history = osList.filter(o =>  ['Concluída','Cancelada'].includes(o.status))
 
   // ── Detalhe de uma OS ─────────────────────────────────────────
+    // Deep link: abre a OS vinda do WhatsApp (?os=OS-2026-NNN)
+  useEffect(() => {
+    if (loading || !osList.length) return
+    const num = new URLSearchParams(window.location.search).get('os')
+    if (!num) return
+    const alvo = osList.find(o => o.number === num)
+    if (alvo) setSelOS(alvo)
+    window.history.replaceState({}, '', window.location.pathname)
+  }, [loading, osList])
+
   if (selOS) {
     return (
       <div style={{ maxWidth: 500, margin: '0 auto' }}>
