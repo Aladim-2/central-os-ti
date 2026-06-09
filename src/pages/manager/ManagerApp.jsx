@@ -10,6 +10,7 @@ import ReportGenerator from './ReportGenerator'
 import MapView from './MapView'
 import StockManager from './StockManager'
 import NotificacaoConfig from './NotificacaoConfig'
+import ElectricianProfiles from './ElectricianProfiles'
 
 export default function ManagerApp({ profile }) {
   const [view,      setView]    = useState('dash')
@@ -187,6 +188,7 @@ export default function ManagerApp({ profile }) {
           </button>
           <button className={`sidebar-link${view === 'create' ? ' active' : ''}`} onClick={() => setView('create')}>➕ Nova OS</button>
           <button className={`sidebar-link${view === 'schools' ? ' active' : ''}`} onClick={() => setView('schools')}>🏫 Situação Escolas</button>
+          <button className={`sidebar-link${view === 'electricians' ? ' active' : ''}`} onClick={() => setView('electricians')}>👷 Eletricistas</button>
           <button className={`sidebar-link${view === 'reports' ? ' active' : ''}`} onClick={() => setView('reports')}>📄 Relatórios</button>
           <button className={`sidebar-link${view === 'stock' ? ' active' : ''}`} onClick={() => setView('stock')}>📦 Estoque</button>
           <button className={`sidebar-link${view === 'map' ? ' active' : ''}`} onClick={() => setView('map')}>🗺️ Mapa da equipe</button>
@@ -210,6 +212,7 @@ export default function ManagerApp({ profile }) {
         {!loading && view === 'create'  && <CreateOS locs={locs} elecs={elecs} profile={profile} onCreated={(os) => { setOsList(p => [os, ...p]); setView('dash') }} onBack={() => setView('dash')} />}
         {!loading && view === 'detail'  && selOS && <OSDetail os={selOS} profile={profile} elecs={elecs} locs={locs} onUpdated={refreshOS} onDeleted={deleteOS} onBack={() => setView('dash')} />}
         {!loading && view === 'schools' && <SchoolStatus osList={osList} locs={locs} />}
+        {!loading && view === 'electricians' && <ElectricianProfiles elecs={elecs} osList={osList} onOpenOS={openOS} />}
         {!loading && view === 'reports' && <ReportGenerator osList={osList} locs={locs} elecs={elecs} profile={profile} />}
         {!loading && view === 'stock'   && <StockManager profile={profile} osList={osList} />}
         {!loading && view === 'map'     && <MapView elecs={elecs} osList={osList} />}
