@@ -254,4 +254,23 @@ export function subscribeOS(userId, role, callback) {
     .subscribe()
 
   return () => supabase.removeChannel(channel)
+}// ── Configuração de notificações WhatsApp ────────────────────
+
+export async function fetchNotificacaoConfig() {
+  const { data, error } = await supabase
+    .from('notificacao_config')
+    .select('*')
+  if (error) throw error
+  return data || []
+}
+
+export async function setNotificacaoAtivo(id, ativo) {
+  const { data, error } = await supabase
+    .from('notificacao_config')
+    .update({ ativo })
+    .eq('id', id)
+    .select()
+    .single()
+  if (error) throw error
+  return data
 }
