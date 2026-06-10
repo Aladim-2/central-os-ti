@@ -32,14 +32,60 @@ export default function OSDetail({ os: initialOS, profile, elecs, locs, onUpdate
   }, [])
 
   // ── Match fuzzy: mesma lógica do StockManager ──
+  function normalizarEstoque(s) {
+    let t = (s || '').toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/sobre\s*por/g, 'sobrepor')
+      .replace(/\b1\s*tecla\b/g, 'simples')
+      .replace(/\b2\s*teclas?\b/g, 'duplo')
+      .replace(/\b3\s*teclas?\b/g, 'triplo')
+      .replace(/caixa\s+(?:de\s+)?distribuicao/g, 'quadro distribuicao')
+      .replace(/(\d)\s*,\s*(\d)/g, '$1.$2')
+      .replace(/(\d)\s*\/\s*5(?!\d)/g, '$1.5')
+      .replace(/(\d)\s*(mm|mt|cm|amperes|ampere|amp|mts|m|w|a|v)\b/g, '$1$2')
+      .replace(/[^a-z0-9.x]+/g, ' ')
+    const SIN = { fio: 'cabo', fios: 'cabo', paflon: 'plafon', plafom: 'plafon', plafonier: 'plafon', conduite: 'eletroduto', conduinte: 'eletroduto', corrigido: 'corrugado', manopolar: 'monopolar', indentificacao: 'identificacao', identificacao: 'indicativa', sinalizacao: 'indicativa', caixinha: 'caixa', interuptor: 'interruptor' }
+    const STOP = ['de', 'do', 'da', 'dos', 'das', 'para', 'pra', 'com', 'em', 'no', 'na', 'e', 'o', 'a', 'os', 'as', 'um', 'uma', 'ao', 'aos', 'ou', 'pcs', 'pc', 'sendo', 'usado', 'total', 'graus', 'curvatura', 'curva.c', 'p', 't']
+    return t.split(' ')
+      .map(w => w.replace(/^\.+|\.+$/g, ''))
+      .filter(w => w && w.length > 1 && STOP.indexOf(w) < 0)
+      .map(w => {
+        let x = SIN[w] || w
+        x = x.replace(/^0+(\d)/, '$1')
+        if (x.length >= 4 && /s$/.test(x) && !/\d/.test(x)) x = x.slice(0, -1)
+        x = SIN[x] || x
+        if (x.length >= 4 && /[ao]$/.test(x) && !/\d/.test(x)) x = x.slice(0, -1)
+        return x
+      })
+  }
+
   function matchStockItem(itemName) {
-    const nome = (itemName || '').toLowerCase().trim()
-    if (!nome) return null
-    return stockItems.find(i => {
-      const desc = (i.description || '').toLowerCase().trim()
-      if (!desc) return false
-      return desc.includes(nome) || nome.includes(desc.substring(0, 8))
-    }) || null
+    const alvo = normalizarEstoque(itemName).filter(w => !/^\d+$/.test(w) && !/^\d+m$/.test(w) && !(w.indexOf('x') >= 0 && w.length > 5))
+    if (alvo.length === 0) return null
+    let melhor = null, melhorScore = 0, melhorSaldo = -1, melhorPrec = 0
+    for (const it of stockItems) {
+      const desc = normalizarEstoque(it.description)
+      if (desc.length === 0) continue
+      let hits = 0
+      for (const t of alvo) {
+        if (desc.some(d => {
+          if (d === t) return true
+          if (t.length >= 3 && d.length >= 3 && (d.indexOf(t) === 0 || t.indexOf(d) === 0)) return true
+          if (t.indexOf('.') < 0 && d.indexOf('.') < 0 && t.indexOf('x') < 0 && d.indexOf('x') < 0) {
+            const nt = t.replace(/[a-z]/g, ''), nd = d.replace(/[a-z]/g, '')
+            if (nt && nt.length >= 2 && nt === nd && t !== nt + 'm' && d !== nd + 'm') return true
+          }
+          return false
+        })) hits++
+      }
+      const score = hits / alvo.length
+      const prec  = hits / desc.length
+      const saldo = (Number(it.quantity) || 0) > 0 ? 1 : 0
+      if (score > melhorScore || (score === melhorScore && saldo > melhorSaldo) || (score === melhorScore && saldo === melhorSaldo && prec > melhorPrec)) {
+        melhorScore = score; melhorSaldo = saldo; melhorPrec = prec; melhor = it
+      }
+    }
+    return melhorScore >= 0.6 ? melhor : null
   }
 
   function showToast(type, message) {
