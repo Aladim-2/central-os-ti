@@ -166,6 +166,8 @@ export default function OSDetail({ os: initialOS, profile, elecs, locs, onUpdate
               notes:           `OS ${os.number} — Entrega aprovada`,
               location_name:   os.location?.name || null,
               created_by_name: profile?.name || 'Gestor',
+              os_id:           os.id,
+              received_by:     el?.name || null,
             })
             .select()
             .single()
@@ -261,6 +263,8 @@ export default function OSDetail({ os: initialOS, profile, elecs, locs, onUpdate
             notes:           `ESTORNO — OS ${os.number} — Entrega desmarcada`,
             location_name:   os.location?.name || null,
             created_by_name: profile?.name || 'Gestor',
+              os_id:           os.id,
+              received_by:     el?.name || null,
           })
 
           // Soma de volta no saldo

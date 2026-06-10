@@ -9,7 +9,9 @@ import UserManager from './UserManager'
 import ReportGenerator from './ReportGenerator'
 import MapView from './MapView'
 import StockManager from './StockManager'
+import ConsumoEletricista from './ConsumoEletricista'
 import NotificacaoConfig from './NotificacaoConfig'
+import NotificacaoCivil from './NotificacaoCivil'
 import ElectricianProfiles from './ElectricianProfiles'
 
 export default function ManagerApp({ profile }) {
@@ -191,6 +193,7 @@ export default function ManagerApp({ profile }) {
           <button className={`sidebar-link${view === 'electricians' ? ' active' : ''}`} onClick={() => setView('electricians')}>👷 Eletricistas</button>
           <button className={`sidebar-link${view === 'reports' ? ' active' : ''}`} onClick={() => setView('reports')}>📄 Relatórios</button>
           <button className={`sidebar-link${view === 'stock' ? ' active' : ''}`} onClick={() => setView('stock')}>📦 Estoque</button>
+          <button className={`sidebar-link${view === 'consumo' ? ' active' : ''}`} onClick={() => setView('consumo')}>👷 Consumo eletricistas</button>
           <button className={`sidebar-link${view === 'map' ? ' active' : ''}`} onClick={() => setView('map')}>🗺️ Mapa da equipe</button>
           <button className={`sidebar-link${view === 'users' ? ' active' : ''}`} onClick={() => setView('users')}>👥 Usuários</button>
           <button className={`sidebar-link${view === 'notif' ? ' active' : ''}`} onClick={() => setView('notif')}>🔔 Notificações</button>
@@ -215,9 +218,10 @@ export default function ManagerApp({ profile }) {
         {!loading && view === 'electricians' && <ElectricianProfiles elecs={elecs} osList={osList} onOpenOS={openOS} />}
         {!loading && view === 'reports' && <ReportGenerator osList={osList} locs={locs} elecs={elecs} profile={profile} />}
         {!loading && view === 'stock'   && <StockManager profile={profile} osList={osList} />}
+        {!loading && view === 'consumo'   && <ConsumoEletricista />}
         {!loading && view === 'map'     && <MapView elecs={elecs} osList={osList} />}
         {view === 'users' && <UserManager />}
-        {view === 'notif' && <NotificacaoConfig />}
+        {view === 'notif' && <><NotificacaoConfig /><NotificacaoCivil /></>}
       </main>
     </div>
   )
