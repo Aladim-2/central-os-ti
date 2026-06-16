@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { updateOS, addHistory, deletePhoto, supabase } from '../../supabase'
+import { updateOS, addHistory, deletePhoto, uploadPhoto, supabase } from '../../supabase'
 import { StatusBadge, PriorityBadge, fmt, fmtDT } from '../../components/Badge'
 
 export default function OSDetail({ os: initialOS, profile, elecs, locs, onUpdated, onBack, onDeleted }) {
@@ -9,6 +9,13 @@ export default function OSDetail({ os: initialOS, profile, elecs, locs, onUpdate
   const [editing,    setEditing]    = useState(false)
   const [stockItems, setStockItems] = useState([])
   const [toast,      setToast]      = useState(null) // { type, message }
+  // ── Modo gestor (execução manual) ──
+  const [gBusy,         setGBusy]         = useState(false)
+  const [gFile,         setGFile]         = useState(null)
+  const [gStage,        setGStage]        = useState('final')
+  const [gDayLog,       setGDayLog]       = useState('')
+  const [gReport,       setGReport]       = useState('')
+  const [gRequireFinal, setGRequireFinal] = useState(false)
   const [editF,      setEditF]      = useState({
     location_id:    initialOS.location_id    || '',
     sector:         initialOS.sector         || '',
@@ -349,6 +356,107 @@ export default function OSDetail({ os: initialOS, profile, elecs, locs, onUpdate
     }
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // MODO GESTOR — execução manual (quando o app do eletricista falha
+  // ou o eletricista esquece de anexar foto). Tudo fica auditável.
+  // ─────────────────────────────────────────────────────────────
+
+  // Recarrega as fotos da OS após upload (pega o id real do registro)
+  async function refetchPhotos() {
+    const { data } = await supabase
+      .from('os_photos')
+      .select('*')
+      .eq('os_id', os.id)
+      .order('created_at', { ascending: true })
+    return data || os.photos || []
+  }
+
+  async function gMarcarExecucao() {
+    setGBusy(true)
+    try {
+      await addHistory(os.id, 'Em Execução', profile.name, profile.id)
+      const updated = await updateOS(os.id, { status: 'Em Execução' })
+      const merged  = { ...os, ...updated, status: 'Em Execução' }
+      setOs(merged)
+      onUpdated(merged)
+      showToast('success', `OS ${os.number} marcada como Em Execução`)
+    } catch (e) {
+      alert('Erro: ' + e.message)
+    } finally {
+      setGBusy(false)
+    }
+  }
+
+  async function gEnviarFoto() {
+    if (!gFile) { showToast('warning', 'Escolha um arquivo de foto primeiro.'); return }
+    setGBusy(true)
+    try {
+      await uploadPhoto(os.id, gStage, gFile)
+      const photos = await refetchPhotos()
+      const merged = { ...os, photos }
+      setOs(merged)
+      onUpdated(merged)
+      setGFile(null)
+      const inp = document.getElementById('gestor-foto-input')
+      if (inp) inp.value = ''
+      const labels = { inicial: 'Vistoria inicial', material: 'Material', execucao: 'Execução', final: 'Conclusão' }
+      showToast('success', `✓ Foto anexada na etapa "${labels[gStage] || gStage}"`)
+    } catch (e) {
+      alert('Erro ao enviar foto: ' + e.message)
+    } finally {
+      setGBusy(false)
+    }
+  }
+
+  async function gRegistrarDia() {
+    if (!gDayLog.trim()) { showToast('warning', 'Escreva o que foi feito hoje.'); return }
+    setGBusy(true)
+    try {
+      const linha = `[${new Date().toLocaleDateString('pt-BR')}] ${gDayLog.trim()}`
+      const novo  = (os.observations ? os.observations + '\n' : '') + linha
+      const updated = await updateOS(os.id, { observations: novo })
+      const merged  = { ...os, ...updated, observations: novo }
+      setOs(merged)
+      onUpdated(merged)
+      setGDayLog('')
+      showToast('success', 'Registro do dia salvo nas observações.')
+    } catch (e) {
+      alert('Erro ao registrar: ' + e.message)
+    } finally {
+      setGBusy(false)
+    }
+  }
+
+  async function gConcluir() {
+    if (gRequireFinal) {
+      const temFinal = (os.photos || []).some(p => p.stage === 'final')
+      if (!temFinal) {
+        showToast('warning', 'Anexe uma foto final antes de concluir (ou desmarque a exigência).')
+        return
+      }
+    }
+    if (!confirm(`Concluir a ${os.number} em modo gestor?\nO encerramento ficará registrado em seu nome no histórico.`)) return
+    setGBusy(true)
+    try {
+      const updates = { status: 'Concluída', completed_at: new Date().toISOString() }
+      if (gReport.trim()) {
+        const carimbo = `[Encerramento manual — gestor ${profile?.name || ''} · ${new Date().toLocaleDateString('pt-BR')}] ${gReport.trim()}`
+        updates.observations = (os.observations ? os.observations + '\n\n' : '') + carimbo
+      }
+      await addHistory(os.id, 'Concluída', profile.name, profile.id)
+      const updated = await updateOS(os.id, updates)
+      const merged  = { ...os, ...updated }
+      setOs(merged)
+      onUpdated(merged)
+      setGReport('')
+      showToast('success', `✓ OS ${os.number} concluída em modo gestor.`)
+    } catch (e) {
+      alert('Erro ao concluir: ' + e.message)
+    } finally {
+      setGBusy(false)
+    }
+  }
+
   const mats = os.materials_needed || []
   const used = os.materials_used   || []
 
@@ -454,9 +562,10 @@ export default function OSDetail({ os: initialOS, profile, elecs, locs, onUpdate
       </div>
 
       <div style={{ display: 'flex', borderBottom: '0.5px solid #e5e3dc', marginBottom: '1rem', flexWrap: 'wrap' }}>
-        {['info','mat','fotos','hist','relatorio'].map((t, i) => {
-          const labels = ['Diagnóstico', `Materiais (${mats.length})`, `Fotos (${os.photos?.length || 0})`, 'Histórico', 'Relatório Final']
+        {['info','mat','fotos','hist','relatorio','gestor'].map((t, i) => {
+          const labels = ['Diagnóstico', `Materiais (${mats.length})`, `Fotos (${os.photos?.length || 0})`, 'Histórico', 'Relatório Final', '🔧 Modo Gestor']
           if (t === 'relatorio' && os.status !== 'Concluída') return null
+          if (t === 'gestor' && os.status === 'Cancelada') return null
           return <button key={t} className={`tab-btn${tab === t ? ' active' : ''}`} onClick={() => setTab(t)}>{labels[i]}</button>
         })}
       </div>
@@ -601,6 +710,86 @@ export default function OSDetail({ os: initialOS, profile, elecs, locs, onUpdate
           {os.observations && <div style={{ marginBottom: 12 }}><p className="label">Observações técnicas</p><p style={{ fontSize: 13, lineHeight: 1.7 }}>{os.observations}</p></div>}
           {used.length > 0 && <div style={{ marginBottom: 16 }}><p className="label">Materiais utilizados</p>{used.map((m, i) => <p key={i} style={{ fontSize: 13 }}>• {m.qty}x {m.item}</p>)}</div>}
           <div style={{ marginTop: 16, paddingTop: 12, borderTop: '0.5px solid #e5e3dc' }}><p style={{ fontSize: 11, color: '#888780' }}>Para gerar PDF: use Ctrl+P → Salvar como PDF.</p></div>
+        </div>
+      )}
+
+      {tab === 'gestor' && os.status !== 'Cancelada' && (
+        <div className="card" style={{ borderLeft: '4px solid #2563EB' }}>
+          <p style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>🔧 Execução manual (modo gestor)</p>
+          <p style={{ fontSize: 12, color: '#92400E', background: '#FEF3C7', padding: '8px 12px', borderRadius: 8, lineHeight: 1.5, marginBottom: 18 }}>
+            Use quando o app do eletricista falhar ou quando ele esquecer de anexar foto.
+            Tudo que você fizer aqui é lançado em nome de <strong>{el?.name || 'eletricista'}</strong> e fica
+            registrado como lançamento manual feito por você (auditável). Não exige GPS.
+          </p>
+
+          {/* 1 · MARCAR INÍCIO */}
+          {os.status !== 'Concluída' && (
+            <div style={{ paddingBottom: 16, marginBottom: 16, borderBottom: '0.5px solid #e5e3dc' }}>
+              <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>1 · MARCAR INÍCIO</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <p style={{ fontSize: 12, color: '#888780' }}>Status atual: <strong>{os.status}</strong>.</p>
+                {os.status !== 'Em Execução'
+                  ? <button className="btn btn-info" style={{ fontSize: 12, padding: '6px 14px' }} onClick={gMarcarExecucao} disabled={gBusy}>Marcar como em execução</button>
+                  : <span style={{ fontSize: 12, color: '#065F46', fontWeight: 600 }}>✓ Já está em execução</span>}
+              </div>
+            </div>
+          )}
+
+          {/* 2 · ANEXAR FOTO */}
+          <div style={{ paddingBottom: 16, marginBottom: 16, borderBottom: '0.5px solid #e5e3dc' }}>
+            <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>2 · ANEXAR FOTO (baixada do WhatsApp)</p>
+            <input
+              id="gestor-foto-input"
+              type="file"
+              accept="image/*"
+              onChange={e => setGFile(e.target.files?.[0] || null)}
+              style={{ fontSize: 13, marginBottom: 10, display: 'block' }}
+            />
+            <select value={gStage} onChange={e => setGStage(e.target.value)} style={{ marginBottom: 10, maxWidth: 260 }}>
+              <option value="inicial">Vistoria inicial (antes)</option>
+              <option value="material">Material</option>
+              <option value="execucao">Execução (durante)</option>
+              <option value="final">Conclusão (depois)</option>
+            </select>
+            <div>
+              <button className="btn btn-info" style={{ fontSize: 12, padding: '6px 14px' }} onClick={gEnviarFoto} disabled={gBusy || !gFile}>
+                {gBusy ? 'Enviando...' : 'Enviar foto'}
+              </button>
+            </div>
+            <p style={{ fontSize: 11, color: '#888780', marginTop: 8 }}>
+              A foto vai pro mesmo lugar das demais e aparece na aba Fotos e no Relatório Final.
+            </p>
+          </div>
+
+          {/* 3 · REGISTRAR DIA */}
+          {os.status !== 'Concluída' && (
+            <div style={{ paddingBottom: 16, marginBottom: 16, borderBottom: '0.5px solid #e5e3dc' }}>
+              <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>3 · REGISTRAR DIA (opcional)</p>
+              <textarea rows={3} value={gDayLog} onChange={e => setGDayLog(e.target.value)} placeholder="O que foi feito hoje..." style={{ marginBottom: 10 }} />
+              <button className="btn" style={{ fontSize: 12, padding: '6px 14px' }} onClick={gRegistrarDia} disabled={gBusy || !gDayLog.trim()}>Registrar dia</button>
+            </div>
+          )}
+
+          {/* 4 · CONCLUIR / ENCERRAR */}
+          {os.status !== 'Concluída' && (
+            <div>
+              <p style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>4 · CONCLUIR / ENCERRAR OS</p>
+              <textarea rows={3} value={gReport} onChange={e => setGReport(e.target.value)} placeholder="Relatório final: o que foi entregue..." style={{ marginBottom: 10 }} />
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 12, color: '#888780', marginBottom: 12, cursor: 'pointer' }}>
+                <input type="checkbox" checked={gRequireFinal} onChange={e => setGRequireFinal(e.target.checked)} style={{ marginTop: 2 }} />
+                <span>Exigir foto final antes de concluir (deixe desmarcado se a foto veio pelo WhatsApp e você já anexou acima).</span>
+              </label>
+              <button className="btn btn-success" style={{ fontSize: 13, padding: '8px 20px' }} onClick={gConcluir} disabled={gBusy}>
+                {gBusy ? 'Concluindo...' : 'Concluir OS (modo gestor)'}
+              </button>
+            </div>
+          )}
+
+          {os.status === 'Concluída' && (
+            <p style={{ fontSize: 12, color: '#065F46', background: '#D1FAE5', padding: '8px 12px', borderRadius: 8 }}>
+              ✓ Esta OS já está concluída. Você ainda pode anexar fotos acima — elas entram no relatório final automaticamente.
+            </p>
+          )}
         </div>
       )}
     </div>
