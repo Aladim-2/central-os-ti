@@ -6,7 +6,19 @@ const TIPOS = [
   { id: 'laudo',     label: 'Laudo Técnico de Manutenção Elétrica', icon: '⚡', desc: 'Documento técnico formal com diagnósticos, materiais e conclusões' },
   { id: 'relatorio', label: 'Relatório de Atividades da Equipe',    icon: '👥', desc: 'Produtividade por eletricista, resumo por escola e consumo de materiais' },
   { id: 'materiais', label: 'Relatório de Materiais por Escola',    icon: '🔧', desc: 'Lista detalhada de todos os materiais gastos por escola, eletricista e data' },
+  { id: 'rastreio',  label: 'Rastreabilidade por Material',         icon: '🔍', desc: 'Busque um material e veja onde foi usado: escola, eletricista, data, quantidade e OS' },
 ]
+
+// Normaliza nome de material para busca tolerante a grafia:
+// minúsculas, sem acento, troca / . por vírgula, colapsa espaços.
+// Assim "Cabo 2.5mm", "Cabo flex 2/5" e "Fio 2,5mm" batem todos com a busca "2,5".
+const normMat = s => (s || '')
+  .toString()
+  .toLowerCase()
+  .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .replace(/[/.]/g, ',')
+  .replace(/\s+/g, ' ')
+  .trim()
 
 export default function ReportGenerator({ osList, locs, elecs, profile }) {
   const [tipo,      setTipo]      = useState('materiais')
@@ -14,9 +26,14 @@ export default function ReportGenerator({ osList, locs, elecs, profile }) {
   const [dateFim,   setDateFim]   = useState('')
   const [filterEl,  setFilterEl]  = useState('todos')
   const [filterLoc, setFilterLoc] = useState('todas')
+  const [filterMat, setFilterMat] = useState('')
   const [soConc,    setSoConc]    = useState(false)
   const [preview,   setPreview]   = useState(false)
   const printRef = useRef(null)
+
+  const matTermo = normMat(filterMat)
+  const osTemMaterial = os =>
+    !matTermo || (os.materials_used || []).some(m => normMat(m.item).includes(matTermo))
 
   const filtered = osList.filter(os => {
     const dt = new Date(os.created_at)
@@ -25,8 +42,28 @@ export default function ReportGenerator({ osList, locs, elecs, profile }) {
     if (filterEl !== 'todos' && os.electrician_id !== filterEl) return false
     if (filterLoc !== 'todas' && os.location_id !== filterLoc) return false
     if (soConc && os.status !== 'Concluída') return false
+    if (!osTemMaterial(os)) return false
     return true
   })
+
+  // Linhas planas para a rastreabilidade por material
+  const linhasRastreio = []
+  filtered.forEach(os => {
+    (os.materials_used || []).forEach(m => {
+      if (matTermo && !normMat(m.item).includes(matTermo)) return
+      linhasRastreio.push({
+        data:        os.completed_at || os.created_at,
+        escola:      os.location?.name || '—',
+        eletricista: os.electrician?.name || '—',
+        material:    m.item,
+        qty:         m.qty || 0,
+        numero:      os.number,
+        status:      os.status,
+      })
+    })
+  })
+  linhasRastreio.sort((a, b) => new Date(b.data) - new Date(a.data))
+  const totalRastreioQty = linhasRastreio.reduce((s, l) => s + (Number(l.qty) || 0), 0)
 
   const conc    = filtered.filter(o => o.status === 'Concluída')
   const abertas = filtered.filter(o => o.status !== 'Concluída' && o.status !== 'Cancelada')
@@ -146,6 +183,21 @@ export default function ReportGenerator({ osList, locs, elecs, profile }) {
               {locs.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
           </div>
+        </div>
+
+        <div style={{ marginTop: 12 }}>
+          <label className="label">Buscar material {tipo === 'rastreio' ? '' : '(opcional)'}</label>
+          <input
+            type="text"
+            value={filterMat}
+            onChange={e => setFilterMat(e.target.value)}
+            placeholder='Ex: cabo 2,5 · disjuntor · lâmpada · tomada — entende 2,5 / 2.5 / 2/5'
+          />
+          {matTermo && (
+            <p style={{ fontSize: 11, color: '#888780', marginTop: 4 }}>
+              {linhasRastreio.length} uso(s) encontrado(s){tipo !== 'rastreio' ? ` em ${filtered.length} OS` : ''} · total {totalRastreioQty} un
+            </p>
+          )}
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
@@ -334,6 +386,53 @@ export default function ReportGenerator({ osList, locs, elecs, profile }) {
                   })}
                 </div>
               ))}
+            </div>
+          )}
+
+          {/* RASTREABILIDADE POR MATERIAL */}
+          {tipo === 'rastreio' && (
+            <div>
+              <h2 style={{ fontSize:15,fontWeight:600,color:'#1A478A',borderBottom:'1px solid #e5e3dc',paddingBottom:6,marginBottom:8 }}>
+                Rastreabilidade de Material
+              </h2>
+              <p style={{ fontSize:12,color:'#555',marginBottom:16 }}>
+                {filterMat.trim()
+                  ? <>Material pesquisado: <strong>{filterMat.trim()}</strong> · </>
+                  : <>Todos os materiais do período · </>}
+                <strong>{linhasRastreio.length}</strong> registro(s) · total <strong>{totalRastreioQty}</strong> un
+              </p>
+
+              {linhasRastreio.length === 0 ? (
+                <p style={{ color:'#888',fontSize:13 }}>Nenhum uso de material encontrado para os filtros selecionados.</p>
+              ) : (
+                <table style={{ width:'100%',borderCollapse:'collapse',marginBottom:16 }}>
+                  <thead>
+                    <tr>
+                      {['Data','Escola / Unidade','Eletricista','Material','Qtd','Nº OS','Status'].map(h => (
+                        <th key={h} style={{ background:'#1A478A',color:'#fff',padding:'7px 10px',fontSize:11,textAlign:'left' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {linhasRastreio.map((l, i) => (
+                      <tr key={i} style={{ background:i%2===0?'#fff':'#f9f9f9' }}>
+                        <td style={{ padding:'6px 10px',border:'0.5px solid #e5e3dc',fontSize:11,whiteSpace:'nowrap' }}>{fmtDT(l.data)}</td>
+                        <td style={{ padding:'6px 10px',border:'0.5px solid #e5e3dc',fontSize:11 }}>{l.escola}</td>
+                        <td style={{ padding:'6px 10px',border:'0.5px solid #e5e3dc',fontSize:11 }}>{l.eletricista}</td>
+                        <td style={{ padding:'6px 10px',border:'0.5px solid #e5e3dc',fontSize:11,fontWeight:500 }}>{l.material}</td>
+                        <td style={{ padding:'6px 10px',border:'0.5px solid #e5e3dc',fontSize:11,textAlign:'center',fontWeight:600,color:'#1A478A' }}>{l.qty}</td>
+                        <td style={{ padding:'6px 10px',border:'0.5px solid #e5e3dc',fontSize:11,whiteSpace:'nowrap' }}>{l.numero}</td>
+                        <td style={{ padding:'6px 10px',border:'0.5px solid #e5e3dc',fontSize:11 }}>{l.status}</td>
+                      </tr>
+                    ))}
+                    <tr style={{ background:'#E6F1FB',fontWeight:600 }}>
+                      <td colSpan={4} style={{ padding:'6px 10px',border:'0.5px solid #e5e3dc',fontSize:11,textAlign:'right' }}>TOTAL</td>
+                      <td style={{ padding:'6px 10px',border:'0.5px solid #e5e3dc',fontSize:11,textAlign:'center',color:'#1A478A' }}>{totalRastreioQty}</td>
+                      <td colSpan={2} style={{ padding:'6px 10px',border:'0.5px solid #e5e3dc' }}></td>
+                    </tr>
+                  </tbody>
+                </table>
+              )}
             </div>
           )}
 
