@@ -15,15 +15,8 @@ export default function Dashboard({ osList, onOpen, onNew, onUpdated, profile })
 
   const abertas    = osList.filter(o => !['Concluída','Cancelada'].includes(o.status))
   const concluidas = osList.filter(o =>  ['Concluída','Cancelada'].includes(o.status))
-  // TRIAGEM = OS aberta automaticamente (triagem / celular) ainda SEM eletricista designado.
-  // ANDAMENTO = OS abertas que já têm colaborador definido (entraram no fluxo normal).
-  const triagem    = abertas.filter(o => !o.electrician_id)
-  const andamento  = abertas.filter(o =>  o.electrician_id)
-  const shown      = (
-    tab === 'triagem'   ? triagem   :
-    tab === 'concluidas'? concluidas :
-                          andamento
-  ).filter(o => filter === 'Todas' || o.status === filter)
+  const shown      = (tab === 'andamento' ? abertas : concluidas)
+    .filter(o => filter === 'Todas' || o.status === filter)
 
   const awMat  = abertas.filter(o => o.status === 'Aguardando Material')
   const exec   = abertas.filter(o => o.status === 'Em Execução')
@@ -91,45 +84,6 @@ export default function Dashboard({ osList, onOpen, onNew, onUpdated, profile })
       } catch (e) { console.error('Erro ao carregar estoque:', e) }
     })()
   }, [])
-
-  // ── TRIAGEM: lista de eletricistas + designação inline ──────
-  const [electricians, setElectricians] = useState([])
-  const [assigningId,  setAssigningId]  = useState(null)
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const { data } = await supabase
-          .from('profiles')
-          .select('id, name, role')
-          .eq('role', 'eletricista')
-          .order('name')
-        setElectricians(data || [])
-      } catch (e) { console.error('Erro ao carregar eletricistas:', e) }
-    })()
-  }, [])
-
-  async function assignElectrician(os, electricianId) {
-    if (!electricianId) return
-    setAssigningId(os.id)
-    try {
-      const { data, error } = await supabase
-        .from('service_orders')
-        .update({ electrician_id: electricianId })
-        .eq('id', os.id)
-        .select('*, location:locations(*), electrician:profiles!electrician_id(*), history:os_history(*), photos:os_photos(*)')
-        .single()
-      if (error) throw error
-      const elec = electricians.find(e => e.id === electricianId)
-      try { await addHistory(os.id, os.status, profile?.name || 'Gestor', profile?.id) } catch (_) {}
-      if (onUpdated) onUpdated(data)
-      showToast('success', '\u2713 ' + os.number + ' designada para ' + (elec?.name || 'eletricista') + '.')
-    } catch (e) {
-      alert('Erro ao designar eletricista: ' + e.message)
-    } finally {
-      setAssigningId(null)
-    }
-  }
 
   // â”€â”€ Match fuzzy identico ao StockManager / OSDetail â”€â”€
   function matchStockItem(itemName) {
@@ -609,20 +563,11 @@ Eng. Valter Alves — CREA 0519903544/D`)
 
       {/* Abas */}
       <div style={{ display: 'flex', borderBottom: '0.5px solid #e5e3dc', marginBottom: '1rem' }}>
-        <button className={`tab-btn${tab === 'andamento' ? ' active' : ''}`} onClick={() => { setTab('andamento'); setFilter('Todas') }}>Em andamento ({andamento.length})</button>
-        <button className={`tab-btn${tab === 'triagem' ? ' active' : ''}`} onClick={() => { setTab('triagem'); setFilter('Todas') }}>🔧 Triagem ({triagem.length})</button>
+        <button className={`tab-btn${tab === 'andamento' ? ' active' : ''}`} onClick={() => { setTab('andamento'); setFilter('Todas') }}>Em andamento ({abertas.length})</button>
         <button className={`tab-btn${tab === 'concluidas' ? ' active' : ''}`} onClick={() => { setTab('concluidas'); setFilter('Todas') }}>Concluídas / Canceladas ({concluidas.length})</button>
       </div>
 
       {/* Filtros */}
-      {tab === 'triagem' ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: '1rem', background: '#FFF7ED', border: '0.5px solid #FDBA74', borderLeft: '3px solid #F59E0B', borderRadius: 8, padding: '8px 12px' }}>
-          <span style={{ fontSize: 16 }}>🔧</span>
-          <p style={{ fontSize: 12, color: '#9A3412' }}>
-            OS abertas pela triagem ou pelo celular, <strong>aguardando você designar o eletricista</strong>. Ao designar, a OS sai daqui e entra no fluxo normal.
-          </p>
-        </div>
-      ) : (
       <div style={{ display: 'flex', gap: 6, marginBottom: '1rem', flexWrap: 'wrap' }}>
         {(tab === 'andamento'
           ? ['Todas','Nova','Recebida','Em Vistoria','Aguardando Material','Em Execução']
@@ -637,7 +582,6 @@ Eng. Valter Alves — CREA 0519903544/D`)
           }}>{f}</button>
         ))}
       </div>
-      )}
 
       {/* Lista de OS */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -678,26 +622,6 @@ Eng. Valter Alves — CREA 0519903544/D`)
                 {os.deadline && <span>📅 {fmt(os.deadline)}</span>}
                 {os.photos?.length > 0 && <span>🖼 {os.photos.length} foto(s)</span>}
               </div>
-
-              {/* TRIAGEM: designar eletricista direto no card */}
-              {!os.electrician_id && (
-                <div
-                  onClick={e => e.stopPropagation()}
-                  style={{ marginTop: 8, paddingTop: 8, borderTop: '0.5px dashed #FDBA74', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
-                >
-                  <span style={{ fontSize: 11, color: '#C2410C', fontWeight: 600 }}>⏳ Aguardando designação</span>
-                  <select
-                    defaultValue=""
-                    disabled={assigningId === os.id}
-                    onChange={e => assignElectrician(os, e.target.value)}
-                    style={{ padding: '5px 10px', borderRadius: 6, border: '0.5px solid #1D9E75', fontSize: 12, background: '#F0FDF4', color: '#065F46', fontWeight: 600, cursor: 'pointer' }}
-                  >
-                    <option value="" disabled>⚡ Designar eletricista…</option>
-                    {electricians.map(el => <option key={el.id} value={el.id}>{el.name}</option>)}
-                  </select>
-                  {assigningId === os.id && <span style={{ fontSize: 11, color: '#888780' }}>Designando…</span>}
-                </div>
-              )}
             </div>
           )
         })}
