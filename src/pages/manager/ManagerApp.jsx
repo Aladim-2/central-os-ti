@@ -13,6 +13,7 @@ import ConsumoEletricista from './ConsumoEletricista'
 import NotificacaoConfig from './NotificacaoConfig'
 import NotificacaoCivil from './NotificacaoCivil'
 import ElectricianProfiles from './ElectricianProfiles'
+import Triagem from './Triagem'
 
 export default function ManagerApp({ profile }) {
   const [view,      setView]    = useState('dash')
@@ -189,6 +190,7 @@ export default function ManagerApp({ profile }) {
             )}
           </button>
           <button className={`sidebar-link${view === 'create' ? ' active' : ''}`} onClick={() => setView('create')}>➕ Nova OS</button>
+          <button className={`sidebar-link${view === 'triagem' ? ' active' : ''}`} onClick={() => setView('triagem')}>🔧 Triagem</button>
           <button className={`sidebar-link${view === 'schools' ? ' active' : ''}`} onClick={() => setView('schools')}>🏫 Situação Escolas</button>
           <button className={`sidebar-link${view === 'electricians' ? ' active' : ''}`} onClick={() => setView('electricians')}>👷 Eletricistas</button>
           <button className={`sidebar-link${view === 'reports' ? ' active' : ''}`} onClick={() => setView('reports')}>📄 Relatórios</button>
@@ -211,7 +213,8 @@ export default function ManagerApp({ profile }) {
       {/* MAIN */}
       <main style={{ flex: 1, padding: '1.5rem', overflowY: 'auto', maxHeight: '100dvh' }}>
         {loading && <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem' }}><div className="spinner" style={{ width: 32, height: 32 }} /></div>}
-        {!loading && view === 'dash'    && <Dashboard osList={osList} onOpen={openOS} onNew={() => setView('create')} />}
+        {!loading && view === 'dash'    && <Dashboard osList={osList} onOpen={openOS} onNew={() => setView('create')} onUpdated={refreshOS} profile={profile} />}
+        {!loading && view === 'triagem' && <Triagem osList={osList} elecs={elecs} profile={profile} onUpdated={refreshOS} onOpen={openOS} />}
         {!loading && view === 'create'  && <CreateOS locs={locs} elecs={elecs} profile={profile} onCreated={(os) => { setOsList(p => [os, ...p]); setView('dash') }} onBack={() => setView('dash')} />}
         {!loading && view === 'detail'  && selOS && <OSDetail os={selOS} profile={profile} elecs={elecs} locs={locs} onUpdated={refreshOS} onDeleted={deleteOS} onBack={() => setView('dash')} />}
         {!loading && view === 'schools' && <SchoolStatus osList={osList} locs={locs} />}

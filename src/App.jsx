@@ -5,6 +5,7 @@ import Login from './pages/Login'
 import ManagerApp from './pages/manager/ManagerApp'
 import ElectricianApp from './pages/electrician/ElectricianApp'
 import StockOnlyApp from './pages/stock/StockOnlyApp'
+import TriagemApp from './pages/manager/TriagemApp'
 
 export default function App() {
   const [session, setSession] = useState(undefined) // undefined = carregando
@@ -63,7 +64,10 @@ export default function App() {
       {profile.role === 'estoquista' && (
         <Route path="/*" element={<StockOnlyApp profile={profile} />} />
       )}
-      {profile.role !== 'gestor' && profile.role !== 'estoquista' && (
+      {profile.role === 'triador' && (
+        <Route path="/*" element={<TriagemApp profile={profile} />} />
+      )}
+      {profile.role !== 'gestor' && profile.role !== 'estoquista' && profile.role !== 'triador' && (
         <Route path="/*" element={<ElectricianApp profile={profile} />} />
       )}
       <Route path="*" element={<Navigate to="/" replace />} />
