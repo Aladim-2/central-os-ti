@@ -7,10 +7,16 @@ import { supabase, addHistory } from '../../supabase'
 // Reutilizada tanto pelo Gestor (item de menu) quanto pelo Triador (tela única).
 export default function Triagem({ osList, elecs = [], profile, onUpdated, onOpen }) {
   const [assigningId, setAssigningId] = useState(null)
+  const [deletingId,  setDeletingId]  = useState(null)
+  const [deletedIds,  setDeletedIds]  = useState([])
   const [toast,       setToast]       = useState(null)
 
+  const isGestor = profile?.role === 'gestor'
+
   const fila = (osList || []).filter(
-    o => !['Concluída', 'Cancelada'].includes(o.status) && !o.electrician_id
+    o => !['Concluída', 'Cancelada'].includes(o.status) &&
+         !o.electrician_id &&
+         !deletedIds.includes(o.id)
   )
 
   function showToast(type, message) {
@@ -43,6 +49,25 @@ export default function Triagem({ osList, elecs = [], profile, onUpdated, onOpen
       alert('Erro ao designar eletricista: ' + e.message)
     } finally {
       setAssigningId(null)
+    }
+  }
+
+  // Exclusão definitiva da OS — somente gestor. Mesma ordem do OSDetail:
+  // os_history -> os_photos -> service_orders (respeita as foreign keys).
+  async function deleteOS(os) {
+    if (!isGestor) return
+    if (!confirm('Confirma a exclusão definitiva da ' + os.number + '?\nEsta ação não pode ser desfeita.')) return
+    setDeletingId(os.id)
+    try {
+      await supabase.from('os_history').delete().eq('os_id', os.id)
+      await supabase.from('os_photos').delete().eq('os_id', os.id)
+      await supabase.from('service_orders').delete().eq('id', os.id)
+      setDeletedIds(prev => [...prev, os.id])
+      showToast('success', '\uD83D\uDDD1 ' + os.number + ' excluída.')
+    } catch (e) {
+      alert('Erro ao excluir: ' + e.message)
+    } finally {
+      setDeletingId(null)
     }
   }
 
@@ -141,6 +166,24 @@ export default function Triagem({ osList, elecs = [], profile, onUpdated, onOpen
                   {(elecs || []).map(el => <option key={el.id} value={el.id}>{el.name}</option>)}
                 </select>
                 {assigningId === os.id && <span style={{ fontSize: 11, color: '#888780' }}>Designando…</span>}
+
+                {/* Excluir — somente gestor */}
+                {isGestor && (
+                  <button
+                    onClick={() => deleteOS(os)}
+                    disabled={deletingId === os.id}
+                    style={{
+                      marginLeft: 'auto', flexShrink: 0,
+                      padding: '6px 12px', borderRadius: 6,
+                      border: '0.5px solid #FCA5A5', background: '#FEE2E2',
+                      color: '#991B1B', fontSize: 12, fontWeight: 600,
+                      cursor: deletingId === os.id ? 'default' : 'pointer',
+                      opacity: deletingId === os.id ? 0.6 : 1
+                    }}
+                  >
+                    {deletingId === os.id ? 'Excluindo…' : '🗑 Excluir'}
+                  </button>
+                )}
               </div>
             </div>
           )
