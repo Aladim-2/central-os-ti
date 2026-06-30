@@ -149,6 +149,13 @@ export default function OSDetail({ os: initialOS, profile, elecs, locs, onUpdate
       const material = (os.materials_needed || []).find(m => m.id === matId)
       if (!material) { setLoading(false); return }
 
+      // ▼ TRAVA ANTI-DUPLICAÇÃO: se já entregue, não baixa de novo
+      if (material.delivered) {
+        setLoading(false)
+        showToast('warning', `"${material.item}" já está marcado como entregue — baixa ignorada.`)
+        return
+      }
+
       const qty = Number(material.qty) || 0
       const stockMatch = matchStockItem(material.item)
 
@@ -245,6 +252,13 @@ export default function OSDetail({ os: initialOS, profile, elecs, locs, onUpdate
   async function revertDelivery(matId) {
     const material = (os.materials_needed || []).find(m => m.id === matId)
     if (!material) return
+
+    // ▼ TRAVA ANTI-DUPLICAÇÃO: só estorna se ainda está entregue
+    if (!material.delivered) {
+      showToast('warning', `"${material.item}" não está marcado como entregue — nada a estornar.`)
+      return
+    }
+
     const temBaixa = !!material.stock_movement_id
     const msgConfirm = temBaixa
       ? `Desmarcar "${material.item}" como entregue?\n\nO saldo de ${material.delivered_qty || material.qty} ${material.unit || ''} será ESTORNADO no estoque.`
