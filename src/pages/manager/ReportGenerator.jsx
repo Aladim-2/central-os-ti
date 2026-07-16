@@ -30,6 +30,7 @@ export default function ReportGenerator({ osList, locs, elecs, profile }) {
   const [soConc,    setSoConc]    = useState(false)
   const [preview,   setPreview]   = useState(false)
   const [incluirFotos, setIncluirFotos] = useState(true)
+  const [manualFotos,  setManualFotos]  = useState({})   // { [osId]: [dataURL, ...] } — anexadas pelo gestor
   const [preparando,   setPreparando]   = useState(false)
   const [imgCache,     setImgCache]      = useState({})   // { url: dataURL }
   const [nf, setNf] = useState({ empresa: '', cnpj: '', contrato: '', nota: '', empenho: '', valor: '' })
@@ -76,6 +77,28 @@ export default function ReportGenerator({ osList, locs, elecs, profile }) {
     }
     setPreview(true)
     if (callback) setTimeout(callback, 400)
+  }
+
+  // Redimensiona um arquivo local (do computador) e devolve base64 pronto pra embutir.
+  const fileParaBase64 = (file, maxDim = 1000, quality = 0.75) => new Promise(resolve => {
+    const reader = new FileReader()
+    reader.onload = () => urlParaBase64(reader.result, maxDim, quality).then(resolve)
+    reader.onerror = () => resolve(null)
+    reader.readAsDataURL(file)
+  })
+
+  // Gestor anexa foto(s) do computador a uma OS (quando o eletricista não registrou).
+  async function anexarFotosManuais(osId, fileList) {
+    const files = Array.from(fileList || [])
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) continue
+      const b64 = await fileParaBase64(file)
+      if (b64) setManualFotos(prev => ({ ...prev, [osId]: [...(prev[osId] || []), b64] }))
+    }
+  }
+
+  function removerFotoManual(osId, idx) {
+    setManualFotos(prev => ({ ...prev, [osId]: (prev[osId] || []).filter((_, i) => i !== idx) }))
   }
 
   const matTermo = normMat(filterMat)
@@ -472,37 +495,59 @@ export default function ReportGenerator({ osList, locs, elecs, profile }) {
                         </div>
 
                         {/* Comprovação fotográfica */}
-                        {incluirFotos && (os.photos || []).length > 0 && (() => {
+                        {incluirFotos && (() => {
                           const ordem  = ['inicial', 'material', 'execucao', 'final']
                           const labels = { inicial: 'Vistoria inicial', material: 'Material aplicado', execucao: 'Execução', final: 'Conclusão' }
                           const usados = new Set()
                           const grupos = ordem.map(stage => {
                             const phs = (os.photos || []).filter(p => p.stage === stage)
                             phs.forEach(p => usados.add(p.id))
-                            return { stage, titulo: labels[stage], phs }
+                            return { key: stage, titulo: labels[stage], imgs: phs.map(p => ({ id: p.id, src: imgCache[p.url] || p.url })) }
                           })
                           const outras = (os.photos || []).filter(p => !usados.has(p.id))
-                          if (outras.length) grupos.push({ stage: 'outras', titulo: 'Outros registros', phs: outras })
-                          const comFoto = grupos.filter(g => g.phs.length > 0)
-                          if (comFoto.length === 0) return null
+                          if (outras.length) grupos.push({ key: 'outras', titulo: 'Outros registros', imgs: outras.map(p => ({ id: p.id, src: imgCache[p.url] || p.url })) })
+                          const comFoto = grupos.filter(g => g.imgs.length > 0)
+                          const manuais = manualFotos[os.id] || []
+                          const temAlguma = comFoto.length > 0 || manuais.length > 0
+
                           return (
                             <div style={{ marginTop: 10 }}>
                               <p style={{ fontSize: 11, fontWeight: 600, color: '#0C447C', marginBottom: 6 }}>📷 Registro fotográfico — comprovação de aplicação</p>
+
                               {comFoto.map(g => (
-                                <div key={g.stage} style={{ marginBottom: 8 }}>
+                                <div key={g.key} style={{ marginBottom: 8 }}>
                                   <p style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>{g.titulo}</p>
                                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                                    {g.phs.map(p => (
-                                      <img
-                                        key={p.id}
-                                        src={imgCache[p.url] || p.url}
-                                        alt={g.titulo}
-                                        style={{ width: 160, height: 'auto', maxHeight: 200, objectFit: 'cover', borderRadius: 6, border: '0.5px solid #ccc' }}
-                                      />
+                                    {g.imgs.map(im => (
+                                      <img key={im.id} src={im.src} alt={g.titulo} style={{ width: 160, height: 'auto', maxHeight: 200, objectFit: 'cover', borderRadius: 6, border: '0.5px solid #ccc' }} />
                                     ))}
                                   </div>
                                 </div>
                               ))}
+
+                              {manuais.length > 0 && (
+                                <div style={{ marginBottom: 8 }}>
+                                  <p style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>Anexado pelo gestor</p>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                    {manuais.map((src, idx) => (
+                                      <div key={idx} style={{ position: 'relative' }}>
+                                        <img src={src} alt="Anexado pelo gestor" style={{ width: 160, height: 'auto', maxHeight: 200, objectFit: 'cover', borderRadius: 6, border: '0.5px solid #ccc' }} />
+                                        <button className="no-print" onClick={() => removerFotoManual(os.id, idx)} style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(0,0,0,.55)', border: 'none', borderRadius: '50%', width: 20, height: 20, fontSize: 11, color: '#fff', cursor: 'pointer' }}>✕</button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {!temAlguma && (
+                                <p style={{ fontSize: 11, color: '#B45309', marginBottom: 6 }}>⚠ Sem foto registrada pelo eletricista nesta OS — anexe uma foto abaixo, se necessário.</p>
+                              )}
+
+                              {/* Botão de anexo — só na tela, não sai no PDF/Word */}
+                              <label className="no-print" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#0C447C', cursor: 'pointer', border: '1px dashed #B5D4F4', borderRadius: 6, padding: '5px 10px', background: '#F4F9FF', marginTop: 2 }}>
+                                ➕ Anexar foto do computador
+                                <input type="file" accept="image/*" multiple style={{ display: 'none' }} onChange={e => { anexarFotosManuais(os.id, e.target.files); e.target.value = '' }} />
+                              </label>
                             </div>
                           )
                         })()}
