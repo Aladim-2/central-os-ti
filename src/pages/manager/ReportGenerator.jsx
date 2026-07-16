@@ -29,7 +29,54 @@ export default function ReportGenerator({ osList, locs, elecs, profile }) {
   const [filterMat, setFilterMat] = useState('')
   const [soConc,    setSoConc]    = useState(false)
   const [preview,   setPreview]   = useState(false)
+  const [incluirFotos, setIncluirFotos] = useState(true)
+  const [preparando,   setPreparando]   = useState(false)
+  const [imgCache,     setImgCache]      = useState({})   // { url: dataURL }
+  const [nf, setNf] = useState({ empresa: '', cnpj: '', contrato: '', nota: '', empenho: '', valor: '' })
   const printRef = useRef(null)
+
+  // Converte uma imagem (URL pública) em base64 redimensionado, para o
+  // PDF/Word sair autossuficiente (não depende do servidor de mídia no ato do envio).
+  // Se o CORS bloquear o canvas, cai de volta para a URL original.
+  const urlParaBase64 = (url, maxDim = 1000, quality = 0.75) => new Promise(resolve => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => {
+      try {
+        let w = img.naturalWidth, h = img.naturalHeight
+        if (w > maxDim || h > maxDim) {
+          const r = Math.min(maxDim / w, maxDim / h)
+          w = Math.round(w * r); h = Math.round(h * r)
+        }
+        const c = document.createElement('canvas')
+        c.width = w; c.height = h
+        c.getContext('2d').drawImage(img, 0, 0, w, h)
+        resolve(c.toDataURL('image/jpeg', quality))
+      } catch { resolve(url) }
+    }
+    img.onerror = () => resolve(url)
+    img.src = url
+  })
+
+  // Pré-carrega todas as fotos das OS filtradas antes de abrir o documento.
+  async function prepararFotos() {
+    const urls = new Set()
+    filtered.forEach(os => (os.photos || []).forEach(p => { if (p.url) urls.add(p.url) }))
+    if (urls.size === 0) { setImgCache({}); return }
+    const cache = {}
+    await Promise.all([...urls].map(async u => { cache[u] = await urlParaBase64(u) }))
+    setImgCache(cache)
+  }
+
+  // Abre o preview; se for o relatório de materiais com fotos, embute as imagens antes.
+  async function abrirDoc(callback) {
+    if (tipo === 'materiais' && incluirFotos) {
+      setPreparando(true)
+      try { await prepararFotos() } finally { setPreparando(false) }
+    }
+    setPreview(true)
+    if (callback) setTimeout(callback, 400)
+  }
 
   const matTermo = normMat(filterMat)
   const osTemMaterial = os =>
@@ -205,14 +252,36 @@ export default function ReportGenerator({ osList, locs, elecs, profile }) {
           <label htmlFor="soConc" style={{ fontSize: 13, cursor: 'pointer' }}>Incluir somente OS Concluídas</label>
         </div>
 
+        {/* Vínculo com a Nota Fiscal — só no relatório de materiais (prestação de contas) */}
+        {tipo === 'materiais' && (
+          <div style={{ marginTop: 14, padding: 12, border: '0.5px solid #e5e3dc', borderRadius: 8, background: '#fafafa' }}>
+            <p className="label" style={{ marginBottom: 8 }}>
+              Vínculo com a Nota Fiscal <span style={{ fontWeight: 400, color: '#888780' }}>(opcional — aparece no cabeçalho, para comprovar a aplicação da nota junto à Controladoria/MP)</span>
+            </p>
+            <div className="grid2" style={{ gap: 10 }}>
+              <div><label className="label">Empresa fornecedora</label><input value={nf.empresa} onChange={e => setNf(p => ({ ...p, empresa: e.target.value }))} placeholder="JOBARA Materiais de Construção e Serviços LTDA" /></div>
+              <div><label className="label">CNPJ</label><input value={nf.cnpj} onChange={e => setNf(p => ({ ...p, cnpj: e.target.value }))} placeholder="11.700.813/0001-00" /></div>
+              <div><label className="label">Contrato / Autorização</label><input value={nf.contrato} onChange={e => setNf(p => ({ ...p, contrato: e.target.value }))} placeholder="Contrato 241/2025 · AF 049/2026" /></div>
+              <div><label className="label">Nota Fiscal / DANFE</label><input value={nf.nota} onChange={e => setNf(p => ({ ...p, nota: e.target.value }))} placeholder="1.874" /></div>
+              <div><label className="label">Nº do Empenho</label><input value={nf.empenho} onChange={e => setNf(p => ({ ...p, empenho: e.target.value }))} placeholder="26000137" /></div>
+              <div><label className="label">Valor da nota (R$)</label><input value={nf.valor} onChange={e => setNf(p => ({ ...p, valor: e.target.value }))} placeholder="2.384,00" /></div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+              <input type="checkbox" id="incFotos" checked={incluirFotos} onChange={e => setIncluirFotos(e.target.checked)} />
+              <label htmlFor="incFotos" style={{ fontSize: 13, cursor: 'pointer' }}>Incluir as fotos enviadas pelos eletricistas (comprovação fotográfica)</label>
+            </div>
+          </div>
+        )}
+
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, paddingTop: 12, borderTop: '0.5px solid #e5e3dc', flexWrap: 'wrap', gap: 10 }}>
           <div style={{ fontSize: 12, color: '#888780' }}>
             <strong style={{ color: '#111' }}>{filtered.length}</strong> OS · <strong style={{ color: '#065F46' }}>{conc.length}</strong> concluídas · <strong style={{ color: '#92400E' }}>{abertas.length}</strong> abertas
+            {preparando && <span style={{ marginLeft: 10, color: '#0C447C' }}>⏳ Preparando fotos…</span>}
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-info" onClick={() => setPreview(true)} style={{ fontSize: 12 }}>👁 Visualizar</button>
-            <button className="btn btn-primary" onClick={() => { setPreview(true); setTimeout(printPDF, 300) }} style={{ fontSize: 12 }}>🖨 PDF</button>
-            <button className="btn btn-success" onClick={() => { setPreview(true); setTimeout(exportWord, 300) }} style={{ fontSize: 12 }}>📄 Word</button>
+            <button className="btn btn-info"    disabled={preparando} onClick={() => abrirDoc()}          style={{ fontSize: 12 }}>👁 Visualizar</button>
+            <button className="btn btn-primary" disabled={preparando} onClick={() => abrirDoc(printPDF)}  style={{ fontSize: 12 }}>🖨 PDF</button>
+            <button className="btn btn-success" disabled={preparando} onClick={() => abrirDoc(exportWord)} style={{ fontSize: 12 }}>📄 Word</button>
           </div>
         </div>
       </div>
@@ -327,7 +396,27 @@ export default function ReportGenerator({ osList, locs, elecs, profile }) {
           {/* RELATÓRIO DE MATERIAIS POR ESCOLA */}
           {tipo === 'materiais' && (
             <div>
-              <h2 style={{ fontSize:15,fontWeight:600,color:'#1A478A',borderBottom:'1px solid #e5e3dc',paddingBottom:6,marginBottom:16 }}>Materiais Utilizados por Unidade Escolar</h2>
+              <h2 style={{ fontSize:15,fontWeight:600,color:'#1A478A',borderBottom:'1px solid #e5e3dc',paddingBottom:6,marginBottom:16 }}>Comprovação de Aplicação de Materiais por Unidade Escolar</h2>
+
+              {(nf.empresa || nf.cnpj || nf.contrato || nf.nota || nf.empenho || nf.valor) && (
+                <table style={{ width:'100%', borderCollapse:'collapse', marginBottom:16 }}>
+                  <tbody>
+                    {nf.empresa && <tr><td style={{ padding:'6px 10px',border:'0.5px solid #e5e3dc',fontWeight:600,fontSize:12,width:'32%',background:'#f4f7fb' }}>Empresa fornecedora</td><td style={{ padding:'6px 10px',border:'0.5px solid #e5e3dc',fontSize:12 }}>{nf.empresa}{nf.cnpj ? ` — CNPJ ${nf.cnpj}` : ''}</td></tr>}
+                    {nf.contrato && <tr><td style={{ padding:'6px 10px',border:'0.5px solid #e5e3dc',fontWeight:600,fontSize:12,background:'#f4f7fb' }}>Contrato / Autorização</td><td style={{ padding:'6px 10px',border:'0.5px solid #e5e3dc',fontSize:12 }}>{nf.contrato}</td></tr>}
+                    {(nf.nota || nf.empenho) && <tr><td style={{ padding:'6px 10px',border:'0.5px solid #e5e3dc',fontWeight:600,fontSize:12,background:'#f4f7fb' }}>Nota Fiscal / Empenho</td><td style={{ padding:'6px 10px',border:'0.5px solid #e5e3dc',fontSize:12 }}>{[nf.nota && `NF/DANFE nº ${nf.nota}`, nf.empenho && `Empenho nº ${nf.empenho}`].filter(Boolean).join(' · ')}</td></tr>}
+                    {nf.valor && <tr><td style={{ padding:'6px 10px',border:'0.5px solid #e5e3dc',fontWeight:600,fontSize:12,background:'#f4f7fb' }}>Valor da nota</td><td style={{ padding:'6px 10px',border:'0.5px solid #e5e3dc',fontSize:12 }}>R$ {nf.valor}</td></tr>}
+                  </tbody>
+                </table>
+              )}
+
+              <p style={{ fontSize:12,lineHeight:1.7,color:'#444',marginBottom:20 }}>
+                O presente relatório tem por finalidade comprovar a efetiva aplicação dos materiais elétricos
+                {(nf.nota || nf.empresa) ? ' referentes à nota fiscal acima identificada' : ' adquiridos'} nas unidades
+                escolares da rede municipal de ensino de Itabuna/BA que passam por reforma e/ou adequações, discriminando
+                por escola, ordem de serviço, eletricista responsável e data de execução, com o respectivo registro fotográfico
+                da instalação, sob responsabilidade técnica do Eng. Eletricista Valter Alves, CREA 0519903544/D.
+              </p>
+
               {Object.entries(matsPorEscola()).length === 0 && (
                 <p style={{ color:'#888',fontSize:13 }}>Nenhum material registrado no período selecionado.</p>
               )}
@@ -381,6 +470,42 @@ export default function ReportGenerator({ osList, locs, elecs, profile }) {
                           <span>📌 Status: <strong>{os.status}</strong></span>
                           {os.sector && <span>🏢 Setor: <strong>{os.sector}</strong></span>}
                         </div>
+
+                        {/* Comprovação fotográfica */}
+                        {incluirFotos && (os.photos || []).length > 0 && (() => {
+                          const ordem  = ['inicial', 'material', 'execucao', 'final']
+                          const labels = { inicial: 'Vistoria inicial', material: 'Material aplicado', execucao: 'Execução', final: 'Conclusão' }
+                          const usados = new Set()
+                          const grupos = ordem.map(stage => {
+                            const phs = (os.photos || []).filter(p => p.stage === stage)
+                            phs.forEach(p => usados.add(p.id))
+                            return { stage, titulo: labels[stage], phs }
+                          })
+                          const outras = (os.photos || []).filter(p => !usados.has(p.id))
+                          if (outras.length) grupos.push({ stage: 'outras', titulo: 'Outros registros', phs: outras })
+                          const comFoto = grupos.filter(g => g.phs.length > 0)
+                          if (comFoto.length === 0) return null
+                          return (
+                            <div style={{ marginTop: 10 }}>
+                              <p style={{ fontSize: 11, fontWeight: 600, color: '#0C447C', marginBottom: 6 }}>📷 Registro fotográfico — comprovação de aplicação</p>
+                              {comFoto.map(g => (
+                                <div key={g.stage} style={{ marginBottom: 8 }}>
+                                  <p style={{ fontSize: 10, color: '#888', marginBottom: 4 }}>{g.titulo}</p>
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                    {g.phs.map(p => (
+                                      <img
+                                        key={p.id}
+                                        src={imgCache[p.url] || p.url}
+                                        alt={g.titulo}
+                                        style={{ width: 160, height: 'auto', maxHeight: 200, objectFit: 'cover', borderRadius: 6, border: '0.5px solid #ccc' }}
+                                      />
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )
+                        })()}
                       </div>
                     )
                   })}
