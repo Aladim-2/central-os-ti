@@ -2,6 +2,13 @@ import { useState } from 'react'
 import { updateOS, addHistory, uploadPhoto } from '../../supabase'
 import { StatusBadge, PriorityBadge, fmt } from '../../components/Badge'
 
+const STAGE_LABEL = {
+  inicial:  'situação encontrada',
+  material: 'material recebido',
+  execucao: 'execução',
+  final:    'serviço concluído'
+}
+
 function getInitialStep(os) {
   if (os.status === 'Nova')                                    return 'receive'
   if (['Recebida','Em Vistoria'].includes(os.status))          return 'vistoria'
@@ -96,7 +103,7 @@ export default function OSExec({ os: initialOS, profile, onUpdated }) {
     setStep('done')
   }
 
-  async function handlePhoto(stage, file) {
+  async function handlePhoto(stage, file, source = 'camera') {
     if (!file) return
     setUploading(true)
     try {
@@ -105,6 +112,14 @@ export default function OSExec({ os: initialOS, profile, onUpdated }) {
       const merged   = { ...os, photos: [...(os.photos || []), newPhoto] }
       setOs(merged)
       onUpdated(merged)
+      // Auditoria (MP/Controladoria): marca no histórico quando a foto não veio da câmera
+      if (source === 'galeria') {
+        try {
+          await addHistory(os.id, `Foto anexada da galeria (${STAGE_LABEL[stage] || stage})`, profile.name, profile.id)
+        } catch (e) {
+          console.error('Falha ao registrar origem da foto no histórico:', e)
+        }
+      }
     } catch (e) {
       alert('Erro no upload: ' + e.message)
     } finally {
@@ -112,10 +127,11 @@ export default function OSExec({ os: initialOS, profile, onUpdated }) {
     }
   }
 
-  function takePhoto(stage) {
+  function pickPhoto(stage, source) {
     const input = document.createElement('input')
-    input.type = 'file'; input.accept = 'image/*'; input.capture = 'environment'
-    input.onchange = e => handlePhoto(stage, e.target.files[0])
+    input.type = 'file'; input.accept = 'image/*'
+    if (source === 'camera') input.capture = 'environment'
+    input.onchange = e => handlePhoto(stage, e.target.files[0], source)
     input.click()
   }
 
@@ -176,11 +192,16 @@ export default function OSExec({ os: initialOS, profile, onUpdated }) {
   // Componente: bloco de fotos
   const PhotoBlock = ({ stage, label }) => (
     <div style={{ marginBottom: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-        <p className="label" style={{ margin: 0 }}>{label}</p>
-        <button className="btn btn-info" style={{ padding: '5px 12px', fontSize: 12 }} onClick={() => takePhoto(stage)} disabled={uploading}>
-          {uploading ? '⏳' : '📷 Foto'}
-        </button>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+        <p className="label" style={{ margin: 0, flex: 1, minWidth: 0 }}>{label}</p>
+        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+          <button className="btn btn-info" style={{ padding: '5px 12px', fontSize: 12 }} onClick={() => pickPhoto(stage, 'camera')} disabled={uploading}>
+            {uploading ? '⏳' : '📷 Tirar foto'}
+          </button>
+          <button className="btn" style={{ padding: '5px 12px', fontSize: 12 }} onClick={() => pickPhoto(stage, 'galeria')} disabled={uploading}>
+            {uploading ? '⏳' : '🖼️ Galeria'}
+          </button>
+        </div>
       </div>
       {photosByS(stage).length > 0 && (
         <div className="photo-grid">
