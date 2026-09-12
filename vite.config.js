@@ -9,10 +9,10 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icons/*.png'],
       manifest: {
-        name: 'Central OS Elétrica',
-        short_name: 'Central OS',
-        description: 'Sistema de Gestão de Ordens de Serviço — SOS Engenharia',
-        theme_color: '#F59E0B',
+        name: 'Central OS TI',
+        short_name: 'OS TI',
+        description: 'Sistema de chamados de TI - SEMED Itabuna',
+        theme_color: '#185FA5',
         background_color: '#ffffff',
         display: 'standalone',
         orientation: 'portrait',
@@ -37,3 +37,4 @@ export default defineConfig({
     })
   ]
 })
+

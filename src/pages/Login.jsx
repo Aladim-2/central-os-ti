@@ -35,15 +35,15 @@ export default function Login() {
           Rua Francisco Silva Rocha, 100 — Centro · CEP 45600-305
         </p>
 
-        {/* Ícone do app */}
+        {/* Ícone do app — azul, para distinguir da Elétrica no celular */}
         <div style={{
           width: 64, height: 64, borderRadius: 16,
-          background: '#FEF3C7',
+          background: '#DBEAFE',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           margin: '0 auto 12px', fontSize: 32
-        }}>⚡</div>
-        <h2 style={{ fontSize: 20, fontWeight: 500, marginBottom: 4 }}>Central OS Elétrica</h2>
-        <p style={{ fontSize: 13, color: '#888780' }}>Sistema de Gestão de Ordens de Serviço</p>
+        }}>💻</div>
+        <h2 style={{ fontSize: 20, fontWeight: 500, marginBottom: 4 }}>Central OS TI</h2>
+        <p style={{ fontSize: 13, color: '#888780' }}>Tecnologia da Informação — Rede Municipal</p>
       </div>
 
       {/* Formulário */}
@@ -87,7 +87,6 @@ export default function Login() {
       {/* Informações de contato */}
       <div className="card" style={{ fontSize: 12, color: '#888780', lineHeight: 1.8, marginBottom: '1rem' }}>
         <p style={{ fontWeight: 500, color: '#444', marginBottom: 4 }}>Secretaria Municipal de Educação</p>
-        <p>Responsável: Josué de Souza Brandão Júnior</p>
         <p>Telefone: (73) 3618-7545</p>
         <p>E-mail: seceducacacao2017@gmail.com</p>
         <p>Funcionamento: 08:00 às 14:00</p>

@@ -1,4 +1,4 @@
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+﻿*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
   --amber-50:  #FAEEDA; --amber-100: #FAC775; --amber-200: #EF9F27;
@@ -45,7 +45,7 @@ button { cursor: pointer; }
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
 
-/* Utilitários */
+/* UtilitÃ¡rios */
 .card {
   background: #fff;
   border: 0.5px solid #e5e3dc;
@@ -75,7 +75,7 @@ button { cursor: pointer; }
   transition: background .15s;
 }
 .btn:hover { background: #f1efe8; }
-.btn-primary  { background: var(--amber-50);  border-color: var(--amber-200); color: var(--amber-800); }
+.btn-primary  { background: var(--blue-600);  border-color: var(--blue-600); color: #fff; }
 .btn-success  { background: var(--green-50);  border-color: #97C459;         color: var(--green-800); }
 .btn-info     { background: var(--blue-50);   border-color: var(--blue-400); color: var(--blue-800); }
 .btn-danger   { background: var(--red-50);    border-color: var(--red-400);  color: var(--red-800); }
@@ -135,3 +135,4 @@ button { cursor: pointer; }
   border-radius: var(--radius); border: 0.5px solid #e5e3dc;
   width: 100%;
 }
+
