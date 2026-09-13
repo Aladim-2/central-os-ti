@@ -271,6 +271,10 @@ opera o VPS.
 
 #### O padrão é sistêmico, não pontual
 
+> Este caso virou parte de um levantamento maior: **[falhas-silenciosas.md](falhas-silenciosas.md)**,
+> que reúne as sete ocorrências e as regras que passaram a valer por causa delas.
+> O que segue é o registro original deste caso.
+
 O `nf-docs` é **falha silenciosa por erro capturado e descartado**: o código
 chama o upload, recebe o erro, testa `if (!upErr)` e segue adiante sem
 gravar nada nem avisar ninguém. Nunca foi detectada porque não havia como

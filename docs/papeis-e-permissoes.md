@@ -216,6 +216,47 @@ fora dela inteiro, com chave elevada.
 **Enquanto não for aplicado:** o botão foi escondido na tela (seção 4), então
 o caminho de UI está fechado. Quem chamar o endpoint diretamente ainda passa.
 
+### 3.3 As duas funções descartam o erro do log de auditoria
+
+Nas duas, `auditar()` é assim:
+
+```js
+async function auditar(entrada) {
+  try { await admin.from('admin_audit_log').insert(entrada) }
+  catch (e) { console.error('Falha ao gravar admin_audit_log:', e) }
+}
+```
+
+**O `supabase-js` não lança exceção em erro de banco** — devolve `{data, error}`.
+O `catch` nunca dispara. Qualquer falha de escrita na trilha é descartada e a
+função segue relatando sucesso.
+
+Foi exatamente assim que a ausência da tabela passou meses sem ser notada: a
+migration `20260912_admin_audit_log.sql` estava no repositório e **nunca havia
+sido aplicada**, então todo `insert` falhava em silêncio. A tabela foi criada
+em 2026-09-13, mas a tabela existir não conserta o padrão — a próxima falha
+(coluna nova, `CHECK` recusando um valor, RLS mudando) passaria igual.
+
+**Patch proposto**, para as duas funções:
+
+```js
+async function auditar(entrada) {
+  const { error } = await admin.from('admin_audit_log').insert(entrada)
+  if (error) {
+    // Auditoria nunca derruba a operação — mas o erro tem que aparecer.
+    console.error('FALHA AO GRAVAR admin_audit_log:', error.message, entrada)
+  }
+}
+```
+
+A decisão de não derrubar a operação continua; o que muda é o erro deixar de
+ser invisível. `console.error` numa Edge Function vai para os logs do Supabase,
+que é onde alguém pode encontrá-lo.
+
+**Não aplicado, e os arquivos `.ts` seguem intactos**, pelo mesmo motivo do
+§3.1: editar o arquivo faz um `supabase functions deploy` de outra pessoa levar
+a mudança junto, sem ninguém decidir.
+
 ---
 
 ## 4. Botões escondidos no `OSDetail.jsx` — e por que isso não é a proteção
