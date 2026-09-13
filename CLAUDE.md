@@ -180,6 +180,17 @@ código em produção sem fonte.
 até a Central OS Elétrica filtrar por disciplina nas consultas de
 estoque. Ver `docs/estoque-ti.md`, seção do topo.
 
+**Ruído recorrente no `ti_wa_log` — em aberto, nada decidido.** O handler
+monta destinatários a partir de `profiles.role` e não consulta `auth.users`,
+então a conta desativada do segundo gestor continua entrando na lista e cada
+OS nova grava uma linha `sem_destino_telefone_invalido`. Não é falha
+silenciosa — é o registro que o módulo existe para produzir — mas log ruidoso
+deixa de ser lido. As sete saídas e o custo de cada uma estão em
+`docs/notificacoes-ti.md` §5. A mais limpa, na leitura do Valter, é o handler
+ignorar perfil sem telefone válido **quando já houver destinatário válido
+para aquele papel**, registrando uma vez em vez de a cada OS — mudança de
+código, frente própria.
+
 **A construir:** Relatórios, Usuários, histórico por escola.
 
 ---

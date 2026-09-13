@@ -303,14 +303,14 @@ gestor às 10h:
 | `central_ti` | Tarso Aguiar | 13 dígitos | ✅ |
 | `tecnico_ti` | Franclin, João Pedro, Ruan, André | 13 dígitos | ✅ os quatro |
 | `gestor` | **Valter Alves** | 13 dígitos, com DDI | ✅ **cadastrado às 10h** |
-| `gestor` | Caio Marcelo | 11 dígitos, sem DDI | ❌ |
+| `gestor` | Caio Marcelo | 11 dígitos, sem DDI | ❌ conta desativada em 13/09 |
 
 **`notify_gestor` deixou de apontar para ninguém.** Com o telefone do Valter
 cadastrado, o aviso ao gestor tem destino — e a tarja vermelha da tela some
 sozinha, porque `NotificacaoConfig.jsx` calcula `gestorSemDestino` a partir
 dos dados e não de texto fixo.
 
-### Mas a pendência mudou de forma, não acabou
+### Mas a pendência mudou de forma, não acabou — ⬜ EM ABERTO
 
 O handler percorre **todos** os perfis com papel `gestor`. O Caio continua com
 formato inválido, então cada OS nova vai gerar uma linha em `ti_wa_log` com
@@ -322,9 +322,52 @@ feito para produzir, e a diferença entre "não mandou e ninguém soube" e "não
 mandou e está escrito" é o assunto inteiro deste projeto. Mas é ruído
 recorrente num log que existe para ser lido, e log ruidoso deixa de ser lido.
 
-Duas saídas, e as duas encerram: corrigir o telefone para o formato com DDI,
-ou concluir a desativação da conta que já estava planejada. Enquanto nenhuma
-das duas acontecer, o `ti_wa_log` carrega uma linha inútil por OS.
+#### ⚠ A desativação da conta NÃO encerra isto
+
+A conta do Caio foi desativada em 2026-09-13 (`auth.users.banned_until =
+'infinity'`), e foi registrado ali que a desativação **resolveria o ruído**.
+Não resolve, e a premissa era minha:
+
+```js
+// nova-os-ti.js — o que decide quem recebe
+supabase.from('profiles').select('id, name, role, phone')
+        .in('role', ['central_ti', 'tecnico_ti', 'gestor'])
+const gestores = (pessoas || []).filter(p => p.role === 'gestor')
+```
+
+Os destinatários saem de **`profiles.role`**. O handler não consulta
+`auth.users` e não tem como saber que o login foi bloqueado. Desativar a conta
+testa o GoTrue; o ruído vem do handler — **testar um não testa o outro**, que é
+a última regra do `falhas-silenciosas.md`.
+
+#### As saídas, e o custo de cada uma
+
+| # | Saída | Encerra? | Custo |
+|---|---|---|---|
+| 1 | `banned_until = 'infinity'` | **não** | nenhum — já feito, pelo mérito próprio |
+| 2 | `phone = null` | **não** | `soDigitos(null)` = `''`, também inválido: mesma linha |
+| 3 | corrigir o telefone para o formato com DDI | sim | nenhum — não toca código nem tabela |
+| 4 | mudar `profiles.role` | sim | impossível hoje: o CHECK só aceita `gestor, eletricista, estoquista, tecnico_ti, central_ti`, e alterá-lo é DDL em tabela **compartilhada com a Elétrica** |
+| 5 | apagar o perfil | sim | destrutivo; perde histórico e há FK de `ti_orders.created_by` |
+| 6 | desligar `notify_gestor` | sim | o gestor válido para de receber junto |
+| 7 | ajustar o `nova-os-ti.js` | sim | mudança de código — frente própria |
+
+`profiles` não tem coluna de atividade: só `id, name, role, phone, initials,
+created_at, neighborhoods`. Uma coluna `ativo` anulável seria aditiva e
+permitida pelo rito, mas muda o contrato de uma tabela que a Elétrica também
+lê — o que a torna decisão, não detalhe.
+
+#### Leitura do Valter, registrada e **não decidida**
+
+> A saída mais limpa é o handler **ignorar perfil sem telefone válido quando
+> já houver ao menos um destinatário válido para aquele papel** — registrando
+> uma vez, e não a cada OS.
+
+Preserva o princípio (o "não mandou" continua visível) e mata o ruído
+(deixa de ser por OS). É a variante mais fiel do item 7, e não foi escolhida:
+é mudança de código, e vira frente própria.
+
+**Nada disto foi decidido. A pendência fica aberta com as opções à vista.**
 
 A tela de Notificações mostra cada destinatário com seu estado, inclusive o
 `(formato inválido)` do Caio, e avisa em vermelho **apenas** quando uma opção
