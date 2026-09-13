@@ -74,6 +74,46 @@ uma requisição por transição de cada OS.
 **Os gatilhos ainda não foram criados.** Criar antes de o endpoint existir
 produziria POST em 404 a cada chamado aberto.
 
+## 3.1 🔴 ROTEIRO DA JANELA — a ordem não é preferência
+
+> **`WEBHOOK_TOKEN_TI` precisa existir no ambiente do VPS ANTES de os gatilhos
+> serem criados.**
+>
+> O handler faz `WEBHOOK_TOKEN_TI || WEBHOOK_TOKEN`. Se a variável não existir,
+> **o fallback pega o token da Elétrica e a separação decidida não acontece** —
+> sem erro, sem aviso, sem log. Os dois sistemas voltam a compartilhar um
+> token que deve ser considerado comprometido enquanto a chave de serviço
+> vazada não for rotacionada.
+>
+> É exatamente o modo de falha que este projeto vem combatendo: a coisa não
+> quebra, ela só deixa de valer.
+
+O SQL dos gatilhos recusa o token da Elétrica — compara com o que está na
+definição do gatilho `nova-os-whatsapp` e aborta se forem iguais. **Mas essa
+guarda só alcança o valor escrito no SQL.** Se o banco receber o token novo e
+o VPS cair no fallback, o banco não tem como ver: a requisição chega com um
+token que o handler aceita, e ninguém percebe que a separação é fictícia.
+
+**A ordem correta:**
+
+| # | Passo | Onde |
+|---|---|---|
+| 1 | definir `WEBHOOK_TOKEN_TI` com valor novo | ambiente do VPS |
+| 2 | subir `nova-os-ti.js` e registrar a rota | VPS |
+| 3 | **confirmar que a rota responde com o token novo e recusa o da Elétrica** | VPS |
+| 4 | aplicar `20260913_ti_wa_gatilhos.sql` com o mesmo valor | banco |
+| 5 | `enabled = true`, `test_only = true` | tela de Notificações |
+| 6 | conferir `ti_wa_log` | tela de Notificações |
+| 7 | resolver o `notify_gestor` | tela de Notificações |
+| 8 | `test_only = false` | tela de Notificações |
+
+O passo 3 é o que fecha o buraco que a guarda do SQL não alcança. Sem ele,
+toda a separação depende de uma variável de ambiente ter sido criada — e
+"ninguém conferiu se existe" é como se chega às sete ocorrências do
+`falhas-silenciosas.md`.
+
+---
+
 ## 4. ⚠ Decisão a tomar NA janela: o token do webhook
 
 Não é pendência genérica. É uma escolha que **os gatilhos da TI cristalizam no
@@ -112,8 +152,20 @@ coisa, e passa a ter controle de acesso próprio. É a única opção que resolv
 em vez de contornar — e a mais trabalhosa, porque muda também a Elétrica se a
 intenção for uniformizar.
 
-**Nenhuma foi escolhida.** Decidir antes de criar os gatilhos da TI, porque
-criá-los é que fixa a escolha.
+### ✅ Decidido: opção B
+
+**Token próprio para a TI**, via `WEBHOOK_TOKEN_TI`. Decidido em 2026-09-13.
+
+O argumento: enquanto a chave de serviço exposta em repositório público não
+for rotacionada, qualquer um que a tenha lê `pg_trigger` e obtém o token da
+Elétrica. **Esse token deve ser considerado comprometido**, e criar a TI com o
+mesmo valor seria nascer assim.
+
+A opção C — tirar o token da definição do gatilho — **não foi descartada**:
+fica como frente própria, fora da janela dos seis serviços, porque pede
+decisão sobre onde guardar o segredo e mexe também na Elétrica se a intenção
+for uniformizar. Não é assunto para ser decidido às pressas dentro de uma
+janela já cheia.
 
 ## 5. Destinatários — e o aviso que impede ligar às cegas
 
