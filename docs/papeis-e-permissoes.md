@@ -17,6 +17,40 @@ souber o endereço chega lá, e a chave publishable viaja no bundle.
 
 ---
 
+# 🔴 PENDÊNCIA ATIVA — a `media-delete` anula o Bloco 5 pelo endpoint direto
+
+**Isto não é nota de rodapé. É um buraco aberto agora, e a única coisa que o
+tapa hoje é a pessoa não conhecer o endereço.**
+
+A policy `ti_central_nao_apaga_foto` fecha o caminho direto do PostgREST. A
+Edge Function `media-delete` usa chave de serviço e **contorna RLS por
+construção** — linha 129:
+
+```js
+} else if (role === 'central_ti' && disciplina === 'ti') {
+  autorizado = true
+}
+```
+
+`central_ti` autenticado que chame `POST /functions/v1/media-delete` com um
+`photoId` apaga a foto **e o arquivo no VPS**, permanentemente, apesar da
+policy. O botão sumiu da tela; o endpoint não.
+
+| | |
+|---|---|
+| Caminho de UI | **fechado** — botão escondido no `OSDetail.jsx` |
+| Endpoint direto | **ABERTO** |
+| O que protege hoje | obscuridade — ninguém ter procurado |
+| O que fecha de verdade | o patch da §3.2, que exige deploy |
+
+Obscuridade não é controle de acesso. Foi exatamente esse raciocínio que
+motivou pôr os limites na RLS em vez do menu, e aqui ele vale contra nós.
+
+**Enquanto a `media-delete` não for corrigida, a decisão "central_ti não apaga
+evidência" está implementada pela metade.** Não tratar como resolvido.
+
+---
+
 # 🔴 1. O achado mais grave: qualquer usuário podia virar gestor
 
 **Não era uma restrição faltando. Era uma porta aberta que ninguém sabia que
@@ -126,11 +160,34 @@ const ESCOPO = {
 }
 ```
 
-**Antes de aplicar, verificar se o Tarso depende de criar conta hoje.** No
-instante do deploy isso para de funcionar, e ninguém checou. Com `[]`, a
-função passa a negar toda ação de administração para `central_ti`, incluindo
-`list` — vale conferir se alguma tela dele chama `list` para montar combo de
-técnico, porque aí quebra a tela junto.
+#### Duas coisas para verificar ANTES do deploy
+
+**1. O Tarso depende de criar conta hoje?** No instante do deploy isso para de
+funcionar. Ninguém checou. Se ele é quem cadastra técnico novo, precisa de
+outro caminho combinado antes — ou a operação trava sem aviso.
+
+**2. `ESCOPO.central_ti = []` também nega a ação `list`.** Esta é a
+consequência menos óbvia e a mais provável de quebrar tela.
+
+A autorização da função é `const podeGerenciar = ESCOPO[actorRole]`, e todas
+as ações são checadas contra essa lista — inclusive `list`, que filtra por
+`.in('role', podeGerenciar)`. Com a lista vazia:
+
+| Ação | Antes | Depois de `[]` |
+|---|---|---|
+| `create` | tecnico_ti, central_ti | negado |
+| `reset_password` | tecnico_ti, central_ti | negado |
+| `update_profile` | tecnico_ti, central_ti | negado |
+| **`list`** | devolve os dois papéis | **devolve lista vazia** |
+
+Ou seja, não é só "não pode mais criar": qualquer tela que chame `list` para
+montar seleção de técnico passa a receber nada, e some a opção de atribuir
+técnico — que é justamente uma das coisas que o `central_ti` **pode** fazer.
+
+Se for esse o caso, o patch não é `[]`: é separar leitura de escrita, com
+`central_ti` mantendo `list` sobre `tecnico_ti` e perdendo `create`,
+`reset_password` e `update_profile`. **Conferir antes de escolher a forma do
+patch.**
 
 ### 3.2 `media-delete` — exclusão de foto
 
