@@ -1,7 +1,20 @@
 # Notificações por WhatsApp — Central OS TI
 
-Estado em 2026-09-13: **a tela de configuração existe; o envio ainda não.**
-Ligar os avisos hoje não produz mensagem nenhuma, e a própria tela diz isso.
+Estado em 2026-09-13, durante a janela: **a tela de configuração existe, e o
+endpoint de envio subiu nesta janela.** Enquanto `ti_wa_config.enabled` seguir
+`false`, ligar os avisos não produz mensagem nenhuma, e a própria tela diz isso.
+
+> ### O bloqueio de acesso ao VPS descrito aqui não existe mais
+>
+> As versões anteriores deste documento registram que `/root/webhook-nova-os`
+> estava fora do meu alcance, e o roteiro abaixo foi escrito para ser executado
+> por quem operasse o VPS. **Era verdade quando foi anotado, e deixou de ser.**
+> Na janela de 2026-09-13 o acesso existia, e os passos do VPS foram executados
+> diretamente.
+>
+> Fica a lição, que é maior que este documento: bloqueio anotado é uma medição
+> com data, não uma propriedade do sistema. Custa um comando conferir, e custa
+> uma janela inteira planejar em torno de um limite que já venceu.
 
 ---
 
@@ -20,6 +33,71 @@ alternativa avaliada era uma Edge Function no Supabase falando direto com a
 Meta, o que seria construível sem depender da janela de manutenção — mas
 duplicaria o credencial e criaria um segundo ponto de rotação. Depois dos
 achados de 2026-09-13, espalhar credencial é andar para trás.
+
+## 1.1 Conferido contra o código do VPS — janela de 2026-09-13
+
+O `nova-os-ti.js` foi escrito **sem acesso ao `server.js`**, e trazia três
+suposições marcadas no topo para conferência. As três se confirmaram. O que a
+conferência encontrou foi outra coisa — e os achados abaixo são o motivo de a
+conferência existir.
+
+| Suposição marcada | Resultado |
+|---|---|
+| Express, corpo já parseado em `req.body` | ✅ `server.js:17`, `server.js:37` (`express.json`, 1mb) |
+| Cliente Supabase com chave de serviço no server | ✅ `server.js:26`, chave de servico (nao a publicavel) |
+| Header de autenticação `x-webhook-token` | ✅ `server.js:153` |
+
+### 🔍 Dois achados que ninguém tinha verificado
+
+**1. A variável do cliente Supabase chama-se `sb`, não `supabase`.**
+`server.js:26` é `const sb = createClient(...)`. A linha de integração precisa
+passar `supabase: sb`. Escrita como `supabase` — o nome que o módulo usa
+internamente — a integração nem sobe: `ReferenceError` no boot. Este falha
+alto, e por isso é o menos perigoso dos dois.
+
+**2. TI e Elétrica estão no MESMO projeto Supabase** (`ppbdxraeygravuwtandr`,
+conferido nos dois lados: `.env` do VPS e `.env` do app da TI).
+
+Esta suposição **não estava marcada**, e é a mais perigosa das quatro. Injetar
+o cliente da Elétrica só funciona porque os dois sistemas vivem no mesmo banco.
+Se fossem projetos distintos, o handler consultaria `ti_orders`, `ti_wa_config`
+e `ti_wa_log` **no banco errado** — encontraria tabela inexistente ou, pior,
+homônima, e devolveria `200` com zero envios. Sem erro, sem aviso, sem log.
+Exatamente a forma das oito ocorrências do `falhas-silenciosas.md`.
+
+Se algum dia a TI ganhar projeto próprio, **esta linha é a que quebra**, e vai
+quebrar em silêncio. Está registrada aqui por isso.
+
+### 🔴 Um defeito corrigido antes de subir: `enviarTemplate` não lança
+
+O `cloud-api.js` **nunca lança exceção** — devolve `{ ok: true, data }` ou
+`{ ok: false, erro }` (`cloud-api.js:28,30`). O `nova-os-ti.js` assumia o
+contrário:
+
+```js
+try {
+  await enviarTemplate(enviado, template, params)
+  await registrar({ ..., status: 'enviado' })   // gravava 'enviado' mesmo falhando
+} catch (e) { ... }                              // código morto para falha de envio
+```
+
+Toda falha de envio da Meta entraria no `ti_wa_log` como `status: 'enviado'`.
+O passo "conferir `ti_wa_log`" mostraria um log limpo de envios que não
+aconteceram — **o módulo feito para combater falha silenciosa nasceria com
+uma.** Corrigido antes de subir:
+
+```js
+const r = await enviarTemplate(enviado, template, params)
+if (!r?.ok) throw new Error(r?.erro ? String(r.erro).slice(0, 180) : 'envio recusado sem detalhe')
+```
+
+A lição generaliza: as suposições que o autor marca são as que ele sabia estar
+assumindo. O risco mora nas que ele não percebeu que assumiu — e suposição
+sobre **contrato de dependência** (o que devolve, se lança, o que conta como
+sucesso) falha em silêncio, enquanto suposição sobre ambiente quebra alto.
+
+Este defeito virou o **caso 8** do `falhas-silenciosas.md` — o único dos oito
+encontrado numa revisão deliberada em vez de por acaso.
 
 ## 2. Os dois avisos e os templates
 
@@ -71,22 +149,38 @@ O filtro fica no banco. **Avanço de etapa não gera chamada HTTP** — o gatilh
 da Elétrica dispara em todo `UPDATE` e deixa o VPS decidir, o que na TI seria
 uma requisição por transição de cada OS.
 
-**Os gatilhos ainda não foram criados.** Criar antes de o endpoint existir
-produziria POST em 404 a cada chamado aberto.
+**Os gatilhos foram criados em 2026-09-13**, depois de o endpoint estar no ar
+— nesta ordem justamente porque criá-los antes produziria POST em 404 a cada
+chamado aberto. As quatro provas do BLOCO 2 passaram, e a conferência do banco
+confirmou: `trg_ti_wa_nova` em `INSERT` sem filtro, `trg_ti_wa_atribuida` em
+`UPDATE` **com** a cláusula `WHEN`, os dois apontando para o mesmo endpoint,
+com o mesmo token, distinto do da Elétrica.
 
 ## 3.1 🔴 ROTEIRO DA JANELA — a ordem não é preferência
 
 > **`WEBHOOK_TOKEN_TI` precisa existir no ambiente do VPS ANTES de os gatilhos
 > serem criados.**
 >
-> O handler faz `WEBHOOK_TOKEN_TI || WEBHOOK_TOKEN`. Se a variável não existir,
-> **o fallback pega o token da Elétrica e a separação decidida não acontece** —
-> sem erro, sem aviso, sem log. Os dois sistemas voltam a compartilhar um
-> token que deve ser considerado comprometido enquanto a chave de serviço
-> vazada não for rotacionada.
+> **O fallback foi removido na janela de 2026-09-13.** O parágrafo abaixo
+> descreve o risco que ele criava, e fica registrado porque é o motivo de a
+> remoção ter sido feita:
 >
-> É exatamente o modo de falha que este projeto vem combatendo: a coisa não
-> quebra, ela só deixa de valer.
+> > Com o fallback — `WEBHOOK_TOKEN_TI || WEBHOOK_TOKEN` — uma variável ausente
+> > fazia o handler **pegar o token da Elétrica, e a separação decidida não
+> > acontecia**: sem erro, sem aviso, sem log. Os dois sistemas voltavam a
+> > compartilhar um token que deve ser considerado comprometido enquanto a
+> > chave de serviço vazada não for rotacionada. É exatamente o modo de falha
+> > que este projeto vem combatendo: a coisa não quebra, ela só deixa de valer.
+>
+> **Hoje a rota da TI falha fechada.** Sem `WEBHOOK_TOKEN_TI` no ambiente, o
+> `server.js` registra `POST /webhook/nova-os-ti` devolvendo `503` e grita no
+> log do boot. A Elétrica não é tocada. A ausência da variável passa a ser
+> visível em vez de silenciosa.
+>
+> Conferir na janela fechava o buraco **naquele dia**; o fallback era
+> permanente. Qualquer start futuro sem a variável — `.env` restaurado de
+> backup antigo, `pm2 start` de outra pasta, migração de servidor — reabriria o
+> mesmo buraco. Adiar um modo de falha não é corrigi-lo.
 
 O SQL dos gatilhos recusa o token da Elétrica — compara com o que está na
 definição do gatilho `nova-os-whatsapp` e aborta se forem iguais. **Mas essa
@@ -107,9 +201,18 @@ token que o handler aceita, e ninguém percebe que a separação é fictícia.
 | 7 | resolver o `notify_gestor` | tela de Notificações |
 | 8 | `test_only = false` | tela de Notificações |
 
+**Passos 1 a 4: executados em 2026-09-13.** Os passos 5 a 8 são de tela e
+seguem pendentes — `ti_wa_config` está em `enabled = false`, `test_only =
+true`, e nada é enviado até alguém ligar.
+
+O passo 4 foi aplicado pelo conector do Supabase, e não por `psql` no VPS.
+A consequência está registrada no `CLAUDE.md`: o valor do `WEBHOOK_TOKEN_TI`
+ficou no transcript daquela sessão, e a rotação dele entra na frente da
+rotação da chave de serviço.
+
 O passo 3 é o que fecha o buraco que a guarda do SQL não alcança. Sem ele,
 toda a separação depende de uma variável de ambiente ter sido criada — e
-"ninguém conferiu se existe" é como se chega às sete ocorrências do
+"ninguém conferiu se existe" é como se chega às oito ocorrências do
 `falhas-silenciosas.md`.
 
 ---
@@ -154,7 +257,30 @@ intenção for uniformizar.
 
 ### ✅ Decidido: opção B
 
-**Token próprio para a TI**, via `WEBHOOK_TOKEN_TI`. Decidido em 2026-09-13.
+**Token próprio para a TI**, via `WEBHOOK_TOKEN_TI`. Decidido em 2026-09-13,
+e aplicado na janela do mesmo dia — valor gerado com `openssl rand -hex 32`,
+gravado só no `.env` do VPS (permissão `600`), nunca impresso.
+
+A linha de integração no `server.js`, **sem fallback**:
+
+```js
+const { criarHandlerNovaOsTi } = require('./nova-os-ti')
+
+const WEBHOOK_TOKEN_TI = process.env.WEBHOOK_TOKEN_TI
+if (!WEBHOOK_TOKEN_TI) {
+  log('WEBHOOK_TOKEN_TI ausente - POST /webhook/nova-os-ti respondera 503')
+  app.post('/webhook/nova-os-ti', (req, res) =>
+    res.status(503).json({ ok: false, erro: 'WEBHOOK_TOKEN_TI nao configurado' }))
+} else {
+  app.post('/webhook/nova-os-ti', criarHandlerNovaOsTi({
+    supabase: sb,                 // ver §1.1: a variável chama-se `sb`
+    enviarTemplate,
+    webhookToken: WEBHOOK_TOKEN_TI
+  }))
+}
+```
+
+Registrada **antes** do `app.use(...)` do 404, senão a rota nunca é alcançada.
 
 O argumento: enquanto a chave de serviço exposta em repositório público não
 for rotacionada, qualquer um que a tenha lê `pg_trigger` e obtém o token da
@@ -186,7 +312,7 @@ saídas ao lado: cadastrar o telefone, ou desligar a opção. A escolha é de qu
 opera; o que não pode é o sistema ser ligado sem que alguém veja.
 
 Isso é resposta direta ao padrão do `falhas-silenciosas.md`: uma opção ligada
-apontando para destino vazio é exatamente a forma que as sete ocorrências
+apontando para destino vazio é exatamente a forma que as oito ocorrências
 tinham em comum — falhar sem produzir sinal.
 
 ## 6. Modo de teste
