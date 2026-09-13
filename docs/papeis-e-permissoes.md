@@ -17,9 +17,14 @@ souber o endereço chega lá, e a chave publishable viaja no bundle.
 
 ---
 
-# 🔴🔴 ABERTO AGORA — qualquer pessoa na internet vira gestor em uma chamada
+# 🟡 FECHADO PELA ENTRADA, MECANISMO INTACTO — o caminho do auto-cadastro até gestor
 
-**Não é escalada a partir de uma conta existente. Não precisa de conta
+> **Estado em 2026-09-13:** o auto-cadastro foi desligado e o caminho público
+> está fechado (medida 1 abaixo, confirmada por teste). As medidas 2 e 3
+> seguem pendentes: o trigger continua aceitando o papel que vier do cliente.
+> O que segue descreve o furo como ele foi encontrado.
+
+**Não era escalada a partir de uma conta existente. Não precisava de conta
 nenhuma.** Confirmado por execução em 2026-09-13, em transação revertida.
 
 ## A cadeia
@@ -79,22 +84,62 @@ resíduo.
 A trava que apliquei hoje não alcança este caminho, e nenhuma das policies
 alcança: `handle_new_user` é `SECURITY DEFINER` e passa por cima de RLS.
 
-## O que fecha
+## O que fecha — estado em 2026-09-13
 
-Três medidas, e as duas primeiras são independentes:
+### ✅ 1. Auto-cadastro desligado — APLICADO
 
-1. **Desligar o auto-cadastro** no painel. As contas aqui são criadas pela
-   administração, nunca por auto-cadastro — a opção está ligada sem uso.
-2. **Parar de confiar no `raw_user_meta_data` para o papel.** O
-   `coalesce(... ->> 'role', 'eletricista')` precisa virar `'eletricista'`
-   fixo, ou o papel sair do trigger e só ser atribuído pela Edge Function.
-3. **Estreitar a policy `Perfil inserção`**, que hoje é
-   `WITH CHECK (auth.uid() IS NOT NULL)` — qualquer autenticado insere perfil.
+Desligado no painel pelo Valter em **2026-09-13**. Confirmado por leitura da
+própria API de autenticação, sem criar conta:
 
-**Nada disso foi feito**: a instrução foi registrar, não mexer. Mas a
-gravidade é diferente da que foi descrita ao registrar — "porta aberta a
-fechar" descreve o item 1; os itens 2 e 3 são a porta estar aberta **e a
-fechadura entregar a chave a quem bate**.
+```
+GET https://<projeto>.supabase.co/auth/v1/settings
+  disable_signup ...... true
+  mailer_autoconfirm .. false
+```
+
+**O caminho público está fechado.** Ninguém de fora cria conta, com papel
+nenhum.
+
+### ⬜ 2. Tirar o papel do `raw_user_meta_data` — PENDENTE
+
+`coalesce(new.raw_user_meta_data->>'role', 'eletricista')` precisa virar
+`'eletricista'` fixo, ou o papel sair do trigger e ser atribuído só pela Edge
+Function `admin-users`, que valida escopo.
+
+**O mecanismo continua exatamente como estava.** Verificado depois do
+desligamento, com a mesma simulação, em transação revertida:
+
+```
+TRIGGER handle_new_user, DEPOIS do disable_signup
+  papel atribuido: gestor
+```
+
+Isso não contradiz o item 1 — mede outra coisa. `disable_signup` é
+configuração do **GoTrue**; o insert do teste vai direto em `auth.users` e não
+passa por ele. O que o teste mostra é que **o trigger segue aceitando o papel
+que vier no metadata**, e portanto qualquer caminho que crie usuário com
+metadata continua podendo escolher o próprio papel.
+
+Quem ainda passa por esse caminho hoje:
+
+- a Edge Function `admin-users`, que cria usuário com `user_metadata` contendo
+  `role` — ali há validação de escopo, então é uso legítimo;
+- qualquer chamada com a **chave de serviço**, que ignora GoTrue e RLS — e há
+  uma dessas exposta em repositório público (ver `falhas-silenciosas.md` e o
+  registro da chave em hardcode);
+- o próprio painel do Supabase;
+- e o auto-cadastro de novo, no dia em que alguém religar a opção **sem saber
+  que ela era a única coisa segurando isto**.
+
+O item 1 é um interruptor. O item 2 é a razão pela qual o interruptor
+importava tanto.
+
+### ⬜ 3. Estreitar a policy `Perfil inserção` — PENDENTE
+
+Hoje é `WITH CHECK (auth.uid() IS NOT NULL)`: qualquer autenticado insere
+linha em `profiles`. A FK para `auth.users` limita o estrago hoje — só dá para
+inserir com um `id` que já exista em `auth.users` —, mas o limite é acidente
+de modelagem, não decisão.
 
 ---
 
