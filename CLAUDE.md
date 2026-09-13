@@ -191,6 +191,28 @@ ignorar perfil sem telefone válido **quando já houver destinatário válido
 para aquele papel**, registrando uma vez em vez de a cada OS — mudança de
 código, frente própria.
 
+**Atualização do PWA falha em silêncio — frente própria.** Em 13/09 o menu
+do gestor apareceu sem o item de Notificações, com o bundle **correto** em
+produção: o service worker servia um *app shell* precacheado de horas antes.
+O `vite.config.js` usa `registerType: 'autoUpdate'`, que atualiza sem avisar
+— e, quando não atualiza, também não avisa. `Ctrl+Shift+R` não resolve,
+porque recarga forçada não desregistra service worker.
+
+Consequência que importa mais que o incômodo: **técnico que instala o app
+hoje pode ficar preso numa versão e não receber correção nenhuma**, sem nada
+na tela indicando isso. É o padrão do dia outra vez — atualização que falha
+sem produzir sinal. A saída é trocar o `autoUpdate` silencioso por um aviso
+de "nova versão disponível" com botão de recarregar (`registerType:
+'prompt'` + o hook de `needRefresh` do `vite-plugin-pwa`).
+
+**Itens pequenos, para uma passada só:**
+- `index.html` não declara `<link rel="icon">` — só `apple-touch-icon`. O
+  Chrome cai no `/favicon.ico`, que não existe: 404 no console em toda
+  sessão. **Não falta arquivo, falta a linha** — os PNG de `public/icons/`
+  servem.
+- `index.html:7` usa `apple-mobile-web-app-capable`, depreciado; o console
+  pede `mobile-web-app-capable` junto.
+
 **A construir:** Relatórios, Usuários, histórico por escola.
 
 ---
