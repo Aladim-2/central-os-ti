@@ -6,7 +6,11 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // 'prompt' em vez de 'autoUpdate': o service worker novo ESPERA em vez de
+      // assumir em silencio, e quem avisa e o src/AtualizacaoDisponivel.jsx.
+      // Motivo em 13/09/2026: um cliente ficou quase 7h numa versao antiga com
+      // o bundle certo publicado, e nada na tela dizia isso.
+      registerType: 'prompt',
       includeAssets: ['icons/*.png'],
       manifest: {
         name: 'Central OS TI',
