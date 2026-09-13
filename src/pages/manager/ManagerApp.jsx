@@ -374,7 +374,7 @@ export default function ManagerApp({ profile }) {
         )}
 
         {!loading && view === 'dash' && (
-          <Dashboard osList={osList} onOpen={openOS} onNew={() => setView('create')} />
+          <Dashboard osList={osList} onOpen={openOS} onNew={() => setView('create')} profile={profile} onUpdated={refreshOS} />
         )}
 
         {!loading && view === 'create' && (
