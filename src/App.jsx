@@ -3,10 +3,12 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { supabase, getProfile } from './supabase'
 import Login from './pages/Login'
 import ManagerApp from './pages/manager/ManagerApp'
+import TecnicoApp from './pages/tecnico/TecnicoApp'
 
 const APPS_POR_PAPEL = {
   central_ti: ManagerApp,
   gestor:     ManagerApp,
+  tecnico_ti: TecnicoApp,
 }
 
 function Centralizado({ children }) {
@@ -17,24 +19,20 @@ function Centralizado({ children }) {
   )
 }
 
+// O ramo "aplicativo de campo em preparação" saiu daqui: tecnico_ti
+// agora tem app próprio no mapa acima e nunca mais cai nesta tela.
+// Texto que descreve um estado que deixou de existir vira mentira
+// silenciosa na próxima leitura.
 function SemAcesso({ profile, onSair }) {
-  const ehTecnicoTI = profile.role === 'tecnico_ti'
   return (
     <Centralizado>
       <div style={{ maxWidth:380, textAlign:'center' }}>
-        <div style={{ fontSize:36, marginBottom:12 }}>{ehTecnicoTI ? '' : ''}</div>
-        <h1 style={{ fontSize:17, fontWeight:600, marginBottom:8 }}>
-          {ehTecnicoTI ? 'Aplicativo de campo em preparação' : 'Acesso não autorizado'}
-        </h1>
+        <h1 style={{ fontSize:17, fontWeight:600, marginBottom:8 }}>Acesso não autorizado</h1>
         <p style={{ fontSize:13, color:'#888780', marginBottom:6 }}>
-          {ehTecnicoTI
-            ? 'Por enquanto os chamados chegam por WhatsApp. A tela do técnico entra em breve.'
-            : <>Sua conta tem o perfil <strong>{profile.role}</strong>, que não faz parte da Central OS TI.</>}
+          Sua conta tem o perfil <strong>{profile.role}</strong>, que não faz parte da Central OS TI.
         </p>
         <p style={{ fontSize:13, color:'#888780', marginBottom:20 }}>
-          {ehTecnicoTI
-            ? 'Qualquer dúvida, procure a central.'
-            : 'Se você é da equipe de manutenção elétrica, acesse a Central OS Elétrica.'}
+          Se você é da equipe de manutenção elétrica, acesse a Central OS Elétrica.
         </p>
         <button className="btn" onClick={onSair}>Sair</button>
       </div>

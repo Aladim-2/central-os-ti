@@ -1,4 +1,8 @@
 import { createClient } from '@supabase/supabase-js'
+import {
+  listarFila, lerBlob, salvarItem, removerItem, contarPendentes,
+  registrarArquivoPossivelmenteOrfao
+} from './lib/filaOffline'
 
 // ============================================================
 // CENTRAL OS TI — camada de dados
@@ -261,8 +265,22 @@ export async function addHistory(osId, status, byName, byId) {
 // exclusão no próprio ambiente e registra em admin_audit_log.
 
 export async function uploadPhoto(osId, stage, file, clientUuid = null) {
+  // ── Guarda de duplicação ──
+  // Com client_uuid, primeiro pergunta se essa foto já foi registrada.
+  // Se a linha existe, o arquivo subiu numa tentativa anterior: não
+  // sobe de novo. Fecha todo caso em que a tentativa anterior chegou
+  // até o insert — que é a maioria das retentativas da fila.
+  if (clientUuid) {
+    const url = await urlDaFotoRegistrada(clientUuid)
+    if (url) return url
+  }
+
   const fd = new FormData()
   fd.append('foto', file)
+  // Vai desde já, mesmo o servidor atual ignorando. Quando o
+  // server.v2.js for ativado, estas mesmas requisições passam a ser
+  // idempotentes sem mudar uma linha do cliente.
+  if (clientUuid) fd.append('client_uuid', clientUuid)
 
   let res
   try {
@@ -301,6 +319,118 @@ export async function uploadPhoto(osId, stage, file, clientUuid = null) {
   }
 
   return finalUrl
+}
+
+// ── App de campo: evidência e fila offline ───────────────────
+//
+// REGRA DE EVIDÊNCIA — indexada pela ORIGEM, não pelo destino.
+//
+// A foto documenta o que existe no momento em que é tirada. Ao sair
+// da vistoria o técnico acabou de inspecionar e não há material
+// nenhum — pedir a foto de "material recebido" ali é pedir foto de
+// algo que ainda não existe. Daí a indexação pela origem.
+//
+// A exceção é concluir: o serviço pronto é a evidência que fecha a
+// prestação de contas, e ela é exigida qualquer que seja a origem.
+// Isso também cobre o salto de etapa (vistoria direto para
+// concluída), que o fluxo permite.
+//
+// DÍVIDA CONHECIDA: o app do gestor (OSDetail.jsx) usa
+// STAGE_POR_STATUS indexado pelo DESTINO. Está errado e deve migrar
+// para esta indexação em etapa própria. Enquanto não migrar, o mesmo
+// movimento real sai etiquetado diferente conforme a origem.
+// Ver docs/app-tecnico.md.
+
+const FOTO_AO_SAIR = {
+  recebida:   null,          // aceitar não é etapa: o técnico não saiu do lugar
+  vistoria:   'vistoria',    // o que encontrou na escola
+  aguardando: 'material',    // o material que chegou
+  execucao:   null,          // foto livre durante a execução
+}
+
+const FOTO_AO_CONCLUIR = 'conclusao'
+
+export function fotosExigidas(de, para) {
+  const exigidas = new Set()
+  if (FOTO_AO_SAIR[de]) exigidas.add(FOTO_AO_SAIR[de])
+  if (para === 'concluida') exigidas.add(FOTO_AO_CONCLUIR)
+  return [...exigidas]
+}
+
+export const LABEL_STAGE_TECNICO = {
+  vistoria:  'situação encontrada',
+  material:  'material recebido',
+  execucao:  'execução em andamento',
+  conclusao: 'serviço concluído',
+}
+
+// Retorna a url se a foto daquele client_uuid já foi registrada.
+export async function urlDaFotoRegistrada(clientUuid) {
+  const { data, error } = await supabase
+    .from('ti_os_photos')
+    .select('url')
+    .eq('client_uuid', clientUuid)
+    .maybeSingle()
+  if (error) throw error
+  return data?.url || null
+}
+
+// ── Drenagem da fila ─────────────────────────────────────────
+// Por item, nesta ordem: foto(s) primeiro, status depois. Só remove
+// da fila quando tudo passou. Cada etapa marca progresso no próprio
+// item, para que a retentativa não refaça o que já deu certo.
+export async function drenarFila(aoProgredir = () => {}) {
+  const itens = await listarFila()
+  const resultado = { enviados: 0, falhas: 0, restantes: 0 }
+
+  for (const item of itens) {
+    try {
+      for (const foto of item.fotos) {
+        if (foto.enviada) continue
+
+        const blob = await lerBlob(foto.chaveBlob)
+        if (!blob) {
+          // Blob sumiu (limpeza do navegador). Não dá para reenviar;
+          // marca como resolvida para o status não ficar preso.
+          foto.enviada = true
+          foto.urlFinal = null
+          await salvarItem(item)
+          continue
+        }
+
+        // Janela de risco: se o POST subir e o app morrer antes do
+        // insert, a retentativa grava outro arquivo no disco. Registra
+        // a intenção antes, para existir o que limpar depois.
+        await registrarArquivoPossivelmenteOrfao(foto.clientUuid, item.osId, foto.stage)
+
+        const arquivo = new File([blob], `${foto.stage}.jpg`, { type: foto.tipo })
+        foto.urlFinal = await uploadPhoto(item.osId, foto.stage, arquivo, foto.clientUuid)
+        foto.enviada = true
+        await salvarItem(item)
+      }
+
+      if (!item.statusAplicado) {
+        const updates = { status: item.para, ...(item.extra || {}) }
+        if (item.nota?.trim()) updates.observations = item.nota.trim()
+        await updateOS(item.osId, updates)
+        await addHistory(item.osId, item.para, item.byName, item.byId)
+        item.statusAplicado = true
+        await salvarItem(item)
+      }
+
+      await removerItem(item)
+      resultado.enviados++
+    } catch (e) {
+      item.tentativas = (item.tentativas || 0) + 1
+      item.ultimoErro = e.message
+      await salvarItem(item)
+      resultado.falhas++
+    }
+    aoProgredir(resultado)
+  }
+
+  resultado.restantes = await contarPendentes()
+  return resultado
 }
 
 export async function deletePhoto(photoId) {
