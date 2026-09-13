@@ -61,6 +61,12 @@ export default function OSDetail({ os: initialOS, profile, tecnicos, onUpdated, 
   const idxAtual  = ORDEM_FLUXO.indexOf(os.status)
   const proximos  = idxAtual >= 0 ? ORDEM_FLUXO.slice(idxAtual + 1) : []
 
+  // Excluir OS, cancelar OS e apagar foto são só do gestor. A trava real
+  // é a RLS (policies ti_central_nao_* e a trigger de papel); isto aqui
+  // não protege nada — só evita mostrar ao usuário um botão que a policy
+  // vai recusar. Botão que falha em silêncio é o pior retorno possível.
+  const podeExcluir = profile?.role === 'gestor'
+
   function showToast(type, message) {
     setToast({ type, message })
     setTimeout(() => setToast(null), 6000)
@@ -180,6 +186,23 @@ export default function OSDetail({ os: initialOS, profile, tecnicos, onUpdated, 
     if (!confirm(`Excluir definitivamente o chamado ${os.numero}? Esta ação não tem volta.${aviso}`)) return
     setLoading(true)
     try {
+      // A OS PRIMEIRO, as fotos depois.
+      //
+      // A ordem inversa destruía evidência mesmo quando a exclusão da OS
+      // era recusada: o media-delete usa chave elevada e contorna a RLS,
+      // então as fotos iam embora e a OS ficava. Apagar a OS primeiro faz
+      // a recusa acontecer antes de qualquer destruição.
+      //
+      // E o DELETE recusado pela RLS não levanta erro: afeta zero linhas e
+      // devolve error nulo. Sem o .select() abaixo a tela dizia "excluído"
+      // com a OS intacta no banco.
+      const { data, error } = await supabase
+        .from('ti_orders').delete().eq('id', os.id).select('id')
+      if (error) throw error
+      if (!data || data.length === 0) {
+        throw new Error('Seu perfil não tem permissão para excluir chamados. Nada foi apagado.')
+      }
+
       // O CASCADE do banco limparia ti_os_photos, mas deixaria os
       // arquivos órfãos no VPS. Passar pelo media-delete apaga o
       // arquivo e registra cada exclusão na trilha de auditoria.
@@ -191,8 +214,6 @@ export default function OSDetail({ os: initialOS, profile, tecnicos, onUpdated, 
         }
       }
 
-      const { error } = await supabase.from('ti_orders').delete().eq('id', os.id)
-      if (error) throw error
       if (onDeleted) onDeleted(os.id)
     } catch (e) {
       showToast('error', 'Erro ao excluir: ' + e.message)
@@ -247,14 +268,16 @@ export default function OSDetail({ os: initialOS, profile, tecnicos, onUpdated, 
           </span>
         )}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-          {!encerrada && (
+          {!encerrada && podeExcluir && (
             <button className="btn" onClick={cancelar} disabled={loading} style={{ color: '#92400E' }}>
               Cancelar chamado
             </button>
           )}
-          <button className="btn" onClick={excluir} disabled={loading} style={{ color: '#991B1B' }}>
-            Excluir
-          </button>
+          {podeExcluir && (
+            <button className="btn" onClick={excluir} disabled={loading} style={{ color: '#991B1B' }}>
+              Excluir
+            </button>
+          )}
         </div>
       </div>
 
@@ -489,6 +512,7 @@ export default function OSDetail({ os: initialOS, profile, tecnicos, onUpdated, 
                         <a href={p.url} target="_blank" rel="noopener noreferrer">
                           <img src={p.url} alt={stage} className="photo-thumb" />
                         </a>
+                        {podeExcluir && (
                         <button
                           onClick={() => removerFoto(p)}
                           title="Apagar foto"
@@ -498,6 +522,7 @@ export default function OSDetail({ os: initialOS, profile, tecnicos, onUpdated, 
                             background: 'rgba(0,0,0,.6)', color: '#fff', fontSize: 12, lineHeight: 1
                           }}
                         >✕</button>
+                        )}
                         <p style={{ fontSize: 10, color: '#888780', marginTop: 2 }}>{fmtDT(p.created_at)}</p>
                       </div>
                     ))}
