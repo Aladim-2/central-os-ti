@@ -7,6 +7,7 @@ import CreateOS from './CreateOS'
 import OSDetail from './OSDetail'
 import StockManager from './StockManager'
 import NotificacaoConfig from './NotificacaoConfig'
+import Versao from '../../Versao'
 import TrocarSenha from '../TrocarSenha'
 
 // ── Avatar ───────────────────────────────────────────────────
@@ -359,6 +360,8 @@ export default function ManagerApp({ profile }) {
             🔑 Trocar senha
           </button>
           <button className="sidebar-link" onClick={signOut} style={{ color: '#991B1B' }}>🚪 Sair</button>
+          {/* Responde "estou atualizado?" sem depender de ninguem. */}
+          <Versao style={{ padding: '8px 8px 0', textAlign: 'center' }} />
         </div>
       </nav>
 

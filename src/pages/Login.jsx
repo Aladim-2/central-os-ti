@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import Versao from '../Versao'
 import { signIn } from '../supabase'
 
 export default function Login() {
@@ -98,7 +99,7 @@ export default function Login() {
         <p style={{ fontWeight: 500, color: '#888780' }}>Eng. Eletricista Valter Alves</p>
         <p>CREA 0519903544/D</p>
         <p style={{ marginTop: 4 }}>SOS Serviços — Engenharia e Manutenção</p>
-        <p style={{ marginTop: 4 }}>v1.0 · 2026</p>
+        <Versao prefixo="v1.0" style={{ marginTop: 4, color: '#b4b2a9' }} />
       </div>
     </div>
   )

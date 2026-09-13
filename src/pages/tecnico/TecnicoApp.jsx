@@ -3,6 +3,7 @@ import { signOut, fetchOS, subscribeOS, STATUS, drenarFila } from '../../supabas
 import { contarPendentes } from '../../lib/filaOffline'
 import OSExec from './OSExec'
 import TrocarSenha from '../TrocarSenha'
+import Versao from '../../Versao'
 
 // ============================================================
 // APP DE CAMPO DO TÉCNICO DE TI
@@ -312,6 +313,11 @@ export default function TecnicoApp({ profile }) {
             )}
           </>
         )}
+
+        {/* O tecnico e quem mais fica preso numa versao velha: e ele que
+            instala o app e some para o campo. Aqui ele consegue dizer em
+            que versao esta, sem precisar do DevTools. */}
+        <Versao style={{ textAlign: 'center', padding: '1.2rem 0 .5rem' }} />
       </div>
     </div>
   )

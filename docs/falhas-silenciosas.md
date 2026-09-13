@@ -152,6 +152,46 @@ em segundos.
 
 ---
 
+## Um princípio mais geral que os oito casos
+
+> **Uma checagem herda o nome do primeiro risco que a motivou, e para de
+> crescer.**
+
+Os oito casos são sobre o sistema não avisar quando falha. Este é sobre a
+**verificação** não avisar — e é mais geral, porque atinge justamente as
+defesas que já foram construídas.
+
+O caso que o produziu, em 2026-09-13: o rito deste repositório manda fazer
+"varredura de segredo no diff antes de empurrar", e ela vinha sendo feita a
+cada commit. Ao documentar por que um aviso não seria entregue, o telefone de
+uma pessoa foi escrito no texto de um doc — num repositório **público**. A
+varredura passou **limpa**, e estava certa: telefone não é segredo. Foi pego
+por leitura, não pelo processo.
+
+O risco real nunca foi "credencial vazando". Era "dado que não pode ser
+publicado indo para um lugar público" — um conjunto maior, do qual credencial
+é só a primeira espécie que apareceu. A checagem foi batizada pela primeira
+espécie e congelou nela.
+
+**O que fazer com isso:**
+
+- A lista de padrões de uma checagem sai da **audiência do destino**, não do
+  nome que ela tem. Repositório público: credencial + dado pessoal de
+  terceiro. Interno: credencial + confidencial de cliente.
+- Revisar periodicamente se o nome da checagem ainda descreve o que ela
+  precisa pegar. Quando o nome e o alcance divergem, o nome vence — porque é
+  ele que a pessoa lê ao decidir se está coberta.
+- Uma checagem que passa limpa é informação sobre **o que ela procura**, e
+  não sobre o que existe. "Varredura limpa" e "não há problema" são frases
+  diferentes.
+
+O parentesco com os oito é direto: lá, ausência de erro era lida como
+evidência de funcionamento. Aqui, ausência de achado é lida como evidência de
+ausência de risco. É o mesmo salto, um nível acima — e mais perigoso, porque
+quem o dá está justamente tentando ser cuidadoso.
+
+---
+
 ## O que ainda não foi verificado
 
 **Sete das oito foram encontradas por acaso**, no caminho de outras tarefas.
