@@ -67,8 +67,20 @@ que seja.
 parciais.
 
 **Git.** `git add` com caminhos específicos, nunca `git add .`.
-`npm run build` local antes de todo push. Varredura de segredo no diff
-antes de empurrar — o repositório é público.
+`npm run build` local antes de todo push. Varredura no diff antes de
+empurrar — o repositório é público — cobrindo **duas** categorias:
+
+1. **Credencial** — chave, token, JWT, string de conexão.
+2. **Dado pessoal de terceiro** — telefone, e-mail pessoal, endereço, CPF.
+
+*Origem da regra 2 (13/09/2026): ao documentar por que um aviso não seria
+entregue, o telefone da pessoa foi escrito no texto de um doc. A varredura
+de segredo passou **limpa**, porque telefone não é segredo — o risco era de
+outra natureza, e foi pego por leitura, não pelo processo. Rito que cobre uma
+categoria não cobre a outra; a lista de padrões tem de sair da audiência do
+destino, não do nome da checagem. Quando um documento precisa explicar por
+que algo falha para alguém, descrever a **condição** ("11 dígitos, sem DDI")
+em vez do dado.*
 
 **Execução.** Uma ação por vez, com a saída esperada declarada antes.
 Reportar cada passo antes de seguir para o próximo.
