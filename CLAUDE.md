@@ -191,7 +191,20 @@ ignorar perfil sem telefone válido **quando já houver destinatário válido
 para aquele papel**, registrando uma vez em vez de a cada OS — mudança de
 código, frente própria.
 
-**Atualização do PWA falha em silêncio — frente própria.** Em 13/09 o menu
+**⚠ LIMPEZA MANUAL, UMA VEZ POR PESSOA — ANTES de qualquer técnico
+instalar o app.** O aviso de nova versão (`registerType: 'prompt'`, em
+13/09/2026) **não alcança quem já está preso** num service worker antigo:
+esse navegador continua servindo o shell velho, inclusive a própria
+correção. Cada pessoa precisa de uma limpeza manual **uma vez**, e depois
+disso o problema deixa de existir para ela.
+
+A ordem importa e é o ponto todo: **se um técnico instalar antes de limpar,
+ele nasce preso** — um app que parece funcionar, sem nunca receber correção
+e sem nada na tela dizendo isso. É o pior caso possível, pior que o bug
+original, porque some da vista. Texto de instrução para Android e iPhone
+em `docs/limpeza-pwa.md`.
+
+**Atualização do PWA falha em silêncio — TRATADA em 13/09/2026.** Em 13/09 o menu
 do gestor apareceu sem o item de Notificações, com o bundle **correto** em
 produção: o service worker servia um *app shell* precacheado de horas antes.
 O `vite.config.js` usa `registerType: 'autoUpdate'`, que atualiza sem avisar
@@ -201,9 +214,12 @@ porque recarga forçada não desregistra service worker.
 Consequência que importa mais que o incômodo: **técnico que instala o app
 hoje pode ficar preso numa versão e não receber correção nenhuma**, sem nada
 na tela indicando isso. É o padrão do dia outra vez — atualização que falha
-sem produzir sinal. A saída é trocar o `autoUpdate` silencioso por um aviso
-de "nova versão disponível" com botão de recarregar (`registerType:
-'prompt'` + o hook de `needRefresh` do `vite-plugin-pwa`).
+sem produzir sinal. Resolvido trocando o `autoUpdate` silencioso pelo `registerType: 'prompt'`
+com `src/AtualizacaoDisponivel.jsx` (`582e645`). A diferença foi medida no
+`sw.js` gerado, não presumida: `clientsClaim` 1 → 0, e `skipWaiting` deixou
+de ser chamado direto para virar listener de `SKIP_WAITING`. Inclui checagem
+horária com `registro.update()` — sem ela a verificação só ocorre no
+carregamento da página, e app instalado que fica dias aberto nunca checa.
 
 **Itens pequenos, para uma passada só:**
 - `index.html` não declara `<link rel="icon">` — só `apple-touch-icon`. O
@@ -224,5 +240,6 @@ de "nova versão disponível" com botão de recarregar (`registerType:
 `docs/notificacoes-ti.md` — WhatsApp, gatilhos e o roteiro da janela
 `docs/app-tecnico.md` — app de campo, fila offline, dívida do STAGE
 `docs/falhas-silenciosas.md` — o padrão e os casos
+`docs/limpeza-pwa.md` — a limpeza única por pessoa, e os textos para enviar
 
 Ler antes de mexer na área correspondente.
