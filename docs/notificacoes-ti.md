@@ -198,7 +198,7 @@ token que o handler aceita, e ninguém percebe que a separação é fictícia.
 | 4 | aplicar `20260913_ti_wa_gatilhos.sql` com o mesmo valor | banco |
 | 5 | `enabled = true`, `test_only = true` | tela de Notificações |
 | 6 | conferir `ti_wa_log` | tela de Notificações |
-| 7 | resolver o `notify_gestor` | tela de Notificações |
+| 7 | resolver o `notify_gestor` — ✅ gestor cadastrado em 13/09; resta o formato do Caio | tela de Notificações |
 | 8 | `test_only = false` | tela de Notificações |
 
 **Passos 1 a 4: executados em 2026-09-13.** Os passos 5 a 8 são de tela e
@@ -295,21 +295,41 @@ janela já cheia.
 
 ## 5. Destinatários — e o aviso que impede ligar às cegas
 
-Telefones conferidos em 2026-09-13:
+Telefones reconferidos no banco em 2026-09-13, **depois** do cadastro do
+gestor às 10h:
 
-| Papel | Pessoa | Telefone |
-|---|---|---|
-| `central_ti` | Tarso Aguiar | ✅ |
-| `tecnico_ti` | Franclin, João Pedro, Ruan, André | ✅ os quatro |
-| `gestor` | **Valter Alves** | ❌ **sem telefone** |
-| `gestor` | Caio Marcelo | formato inválido; conta sendo desativada |
+| Papel | Pessoa | Telefone | Válido |
+|---|---|---|---|
+| `central_ti` | Tarso Aguiar | 13 dígitos | ✅ |
+| `tecnico_ti` | Franclin, João Pedro, Ruan, André | 13 dígitos | ✅ os quatro |
+| `gestor` | **Valter Alves** | 13 dígitos, com DDI | ✅ **cadastrado às 10h** |
+| `gestor` | Caio Marcelo | 11 dígitos, sem DDI | ❌ |
 
-`ti_wa_config.notify_gestor` está **ligado e aponta para ninguém**.
+**`notify_gestor` deixou de apontar para ninguém.** Com o telefone do Valter
+cadastrado, o aviso ao gestor tem destino — e a tarja vermelha da tela some
+sozinha, porque `NotificacaoConfig.jsx` calcula `gestorSemDestino` a partir
+dos dados e não de texto fixo.
 
-A tela de Notificações mostra isso em vermelho, com o texto dizendo que o
-aviso não será entregue **e que não vai aparecer erro nenhum** — com as duas
-saídas ao lado: cadastrar o telefone, ou desligar a opção. A escolha é de quem
-opera; o que não pode é o sistema ser ligado sem que alguém veja.
+### Mas a pendência mudou de forma, não acabou
+
+O handler percorre **todos** os perfis com papel `gestor`. O Caio continua com
+formato inválido, então cada OS nova vai gerar uma linha em `ti_wa_log` com
+`status: 'sem_destino_telefone_invalido'` — para sempre, enquanto ele existir
+assim.
+
+Isso **não é falha silenciosa**: é exatamente o registro que o módulo foi
+feito para produzir, e a diferença entre "não mandou e ninguém soube" e "não
+mandou e está escrito" é o assunto inteiro deste projeto. Mas é ruído
+recorrente num log que existe para ser lido, e log ruidoso deixa de ser lido.
+
+Duas saídas, e as duas encerram: corrigir o telefone para o formato com DDI,
+ou concluir a desativação da conta que já estava planejada. Enquanto nenhuma
+das duas acontecer, o `ti_wa_log` carrega uma linha inútil por OS.
+
+A tela de Notificações mostra cada destinatário com seu estado, inclusive o
+`(formato inválido)` do Caio, e avisa em vermelho **apenas** quando uma opção
+ligada não tem nenhum destino válido — o que já não é o caso. A escolha é de
+quem opera; o que não pode é o sistema ser ligado sem que alguém veja.
 
 Isso é resposta direta ao padrão do `falhas-silenciosas.md`: uma opção ligada
 apontando para destino vazio é exatamente a forma que as oito ocorrências
@@ -329,5 +349,6 @@ Sequência ao ligar, na janela:
 2. decidir o item 4 e criar os gatilhos, com o SQL à vista antes de aplicar
 3. `enabled = true`, `test_only = true` — tudo cai no número de teste
 4. conferir `ti_wa_log`: destinatário pretendido certo, mensagem certa
-5. resolver o `notify_gestor`
+5. resolver o Caio — corrigir o formato ou desativar a conta (o gestor já
+   está cadastrado desde 13/09)
 6. só então `test_only = false`
