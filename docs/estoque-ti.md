@@ -6,6 +6,63 @@ depois, por parecer redundante ou incompleto, algo que é deliberado.
 
 ---
 
+# ⛔ BLOQUEIO ATIVO — a carga inicial do catálogo de TI está proibida
+
+**Nenhum `INSERT` em `stock_items` com `disciplina='ti'` pode acontecer
+antes de a Central OS Elétrica passar a filtrar por disciplina nas
+consultas de estoque.**
+
+Isso vale para cadastro pela tela, importação por CSV e carga por SQL.
+Sem exceção.
+
+### Por quê
+
+A Elétrica **não filtra por disciplina em nenhuma consulta de estoque** —
+verificado em 2026-09-13 no HEAD de produção (`Aladim-2/central-os-eletrica`,
+commit `f85a274`) e no histórico. A palavra `disciplina` não aparece em
+nenhuma query de `stock_items` ou `stock_movements` de lá.
+
+Enquanto o catálogo de TI estiver **vazio, o risco é zero**. No primeiro
+item cadastrado:
+
+- os itens de TI passam a aparecer nas telas de estoque da Elétrica;
+- estoquista e gestor podem **editar** item de TI por lá;
+- estoquista e gestor podem **APAGAR** item de TI junto com todas as suas
+  movimentações — `StockManager.jsx:867-868` faz `delete` das
+  movimentações e depois do item.
+
+O `delete` **passa por fora da trigger**: `trg_ti_exige_os_na_saida` é
+`BEFORE INSERT OR UPDATE`. Ela cobre os dois caminhos de saída da Elétrica,
+mas não a exclusão. É exatamente a porta que a seção 4.1 fecha na tela de
+TI, aberta pelo outro lado.
+
+### Correção pendente, no repositório da Elétrica
+
+Adicionar `.eq('disciplina','eletrica')` em:
+
+| Arquivo | Linha |
+|---|---|
+| `StockManager.jsx` | 185 (`select` de itens) |
+| `StockManager.jsx` | 186 (movimentações — precisa de `!inner` no join, `stock_movements` não tem coluna de disciplina) |
+| `Dashboard.jsx` | 82 |
+| `OSDetail.jsx` | 35 |
+
+Corrigir a listagem resolve edição e exclusão por consequência: não se
+apaga o que não aparece.
+
+**Não aplicar de passagem.** Em 2026-09-13 a working tree do repositório da
+Elétrica estava suja (5 arquivos modificados e não commitados) e o HEAD
+atrás da linhagem compartilhada. Patch em produção por cima de estado
+indefinido não vale quatro linhas. Quando mexer é decisão do Valter.
+
+### O que segue liberado
+
+A tela de Estoque da TI pode ser **construída e testada** normalmente,
+inclusive a importação por CSV. O que está bloqueado é **executar** a carga
+de itens reais.
+
+---
+
 ## 1. O estoque de TI mora nas tabelas compartilhadas, não em tabelas `ti_*`
 
 `stock_items` e `stock_movements` são compartilhadas com a **Central OS
@@ -75,6 +132,80 @@ Foi provada dentro da própria migration, com os dois casos rodando contra a
 tabela real e rollback ao final (bloco 7b), e depois por teste de fumaça nos
 quatro caminhos da Elétrica: entrada, saída sem OS, estorno e delete de
 movimentação. Se for alterada, refazer as duas provas.
+
+### 3.1 Terceiro tipo de movimento: `ajuste`
+
+**Decidido e implementado** em `20260913_estoque_ti_ajuste.sql`.
+
+A trigger da seção 3 exige `ti_os_id` em toda saída de item de TI, sem
+olhar o rótulo. Isso fecha o furo do histórico por escola e, como efeito,
+tornava irregistráveis três movimentos que são **rotina de almoxarifado
+público, não exceção**:
+
+| Caso | Por que não tem OS |
+|---|---|
+| Perda, quebra, descarte | não há chamado, é baixa de almoxarifado |
+| Transferência entre almoxarifados | movimento interno, sem escola de destino |
+| Estorno de uma entrada | a entrada original não tem OS para herdar |
+
+O pior caso não era o estorno: era o item lançado com quantidade errada na
+entrada ficando **errado para sempre** — sem estorno, sem ajuste e (por
+decisão da seção 4.1) sem exclusão. Isso é defeito funcional criado pela
+trigger, não dívida técnica, e por isso foi corrigido antes da tela, com o
+catálogo ainda vazio. Depois da carga, a mesma correção exigiria reprocessar
+saldo.
+
+#### Como funciona
+
+`stock_movements.type` passa a aceitar um terceiro valor: **`'ajuste'`**.
+Não exigiu DDL — a coluna é texto livre, sem CHECK (verificado antes de
+implementar; os valores em uso eram `saida` e `entrada`).
+
+- A **trigger ignora por construção**: o gatilho é
+  `when (new.type = 'saida')`, então ajuste nunca chega à função.
+- O **saldo trata ajuste como negativo**, igual à saída. Correção para mais
+  não é ajuste, é entrada.
+- `exit_type` carrega o **motivo**: `Perda`, `Quebra`, `Descarte`,
+  `Transferência`, `Estorno de entrada`, `Correção de lançamento`.
+- Consumo em OS e ajuste de almoxarifado são **naturezas diferentes na
+  prestação de contas e não somam juntos**. A classificação vive num lugar
+  só, em `naturezaMovimento()` no `src/supabase.js`, que devolve
+  `entrada` / `consumo_os` / `ajuste` / `saida_sem_os`.
+
+#### Rastreabilidade: a trava contra o ralo
+
+Ajuste sem motivo é o ralo por onde material some sem explicação. A regra
+**não mora no frontend** — ali seria contornável por qualquer outro cliente.
+A constraint `stock_movements_ajuste_exige_rastreio` recusa no banco
+qualquer linha com `type='ajuste'` que não traga os três:
+
+| Campo | Papel |
+|---|---|
+| `exit_type` | motivo, não vazio |
+| `created_by_name` | quem lançou, não vazio |
+| `notes` | justificativa, mínimo 5 caracteres úteis |
+
+O mínimo de 5 existe para que um ponto final não conte como justificativa.
+`registrarAjuste()` valida os mesmos três antes de gravar, só para dar
+mensagem legível em vez do erro do Postgres — não para substituir a trava.
+
+A constraint é global à tabela, mas **nasce dormente para a Elétrica**:
+nenhuma das 178 linhas usa `type='ajuste'` e o código de lá não produz esse
+valor. Provada na própria migration, em cinco casos: Elétrica intacta, saída
+de TI sem OS ainda barrada, ajuste completo sem OS passando, ajuste sem
+motivo barrado, ajuste com justificativa vazia barrado.
+
+#### Efeito no estorno
+
+`estornarMovimento()` agora cobre os dois lados:
+
+- **saída** → estorna como `entrada`, herdando a OS;
+- **entrada** → estorna como `ajuste` com motivo `Estorno de entrada`, e
+  **exige justificativa**. Não pode ser saída, porque saída de TI exige OS e
+  a entrada não tem nenhuma para herdar. Recusa também se o material já
+  saiu, com a mensagem dizendo o saldo atual;
+- **ajuste** → não se estorna. Se o material voltou ao almoxarifado, isso é
+  uma entrada com documento de origem, não o desfazer de uma baixa.
 
 ---
 

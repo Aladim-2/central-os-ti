@@ -5,9 +5,16 @@ import { createClient } from '@supabase/supabase-js'
 // Projeto Supabase ppbdxraeygravuwtandr (compartilhado com a
 // elétrica, civil, extintores, PO Diária e almoxarifado).
 //
-// Este arquivo fala APENAS com as tabelas ti_*. Nenhuma consulta
-// a service_orders aqui — a separação entre os dois sistemas é
-// por tabela, e é ela que mantém o isolamento junto com a RLS.
+// Este arquivo fala com as tabelas ti_* e — só no módulo de
+// Estoque — com stock_items e stock_movements, que são
+// COMPARTILHADAS com a elétrica. Nenhuma consulta a
+// service_orders aqui.
+//
+// Nas duas tabelas compartilhadas, TODA consulta filtra por
+// disciplina 'ti'. Esse filtro não é redundante com a RLS: a RLS
+// impede central_ti de ver a elétrica; o filtro impede a tela do
+// gestor (que tem policy FOR ALL, sem filtro de disciplina) de
+// misturar as duas. Ver docs/estoque-ti.md, seção 2.
 //
 // Nenhuma chave de administração vive neste arquivo. Operações
 // privilegiadas passam pelas Edge Functions admin-users e
@@ -312,6 +319,510 @@ export async function deletePhoto(photoId) {
 
   if (data?.error) throw new Error(data.error)
   return data
+}
+
+// ── Estoque ──────────────────────────────────────────────────
+//
+// stock_items e stock_movements são compartilhadas com a elétrica,
+// que está em produção. Regras que valem para tudo abaixo:
+//
+//  1. Toda leitura filtra disciplina 'ti'; todo insert de item
+//     grava disciplina 'ti'. Sem exceção.
+//  2. Saída SEMPRE carrega ti_os_id. A trigger
+//     trg_ti_exige_os_na_saida rejeita no banco qualquer saída de
+//     item de TI sem OS, independente do rótulo em exit_type.
+//     Os helpers validam antes para dar mensagem melhor que a do
+//     Postgres, não para substituir a trava.
+//  3. Não existe exclusão de item nem de movimentação. Material
+//     é registro administrativo: estorna, não apaga.
+//     Ver docs/estoque-ti.md, seção 4.1.
+
+export const CATEGORIAS_ESTOQUE = [
+  'Suprimento', 'Cabeamento', 'Periférico', 'Componente', 'Rede', 'Outros'
+]
+
+// Unidade predominante da TI é peça. As unidades de volume da
+// elétrica (rolo, pct, cx) não foram trazidas.
+export const UNIDADES_ESTOQUE = ['pç', 'un', 'm', 'kit']
+
+export const TIPOS_ENTRADA = ['Compra', 'Doação', 'Transferência']
+
+// Lista curta de propósito: na TI, SAÍDA é entrega. Material sai do
+// almoxarifado para uma escola sob uma OS, sempre.
+export const TIPOS_SAIDA = ['Uso em OS']
+
+// O que não é entrega é AJUSTE — type 'ajuste', terceiro tipo de
+// movimento. Baixa o saldo como a saída, mas não passa pela trigger
+// de OS (o gatilho é when new.type = 'saida') e não entra no consumo
+// por escola da prestação de contas.
+//
+// Todo ajuste exige motivo, autor e justificativa: a constraint
+// stock_movements_ajuste_exige_rastreio recusa no banco se faltar
+// qualquer um dos três. Ver docs/estoque-ti.md, seção 3.1.
+export const MOTIVOS_AJUSTE = [
+  'Perda', 'Quebra', 'Descarte', 'Transferência',
+  'Estorno de entrada', 'Correção de lançamento'
+]
+
+// Justificativa mínima — espelha o length(btrim(notes)) >= 5 da
+// constraint, para a tela recusar antes de o banco recusar.
+const MIN_JUSTIFICATIVA = 5
+
+// Efeito de cada tipo de movimento sobre o saldo.
+// Ajuste sempre baixa: correção para mais é entrada, não ajuste.
+export const SINAL_SALDO = { entrada: +1, saida: -1, ajuste: -1 }
+
+// Natureza do movimento para o relatório. Consumo em OS e ajuste de
+// almoxarifado são naturezas diferentes na prestação de contas e não
+// podem somar juntos — daí a classificação viver num lugar só.
+export function naturezaMovimento(mov) {
+  if (mov?.type === 'entrada') return 'entrada'
+  if (mov?.type === 'ajuste')  return 'ajuste'
+  if (mov?.type === 'saida')   return mov.ti_os_id ? 'consumo_os' : 'saida_sem_os'
+  return 'desconhecido'
+}
+
+const SELECT_MOV = '*, stock_item:stock_items!inner(id,description,unit,category,disciplina)'
+
+export async function fetchStockItems() {
+  const { data, error } = await supabase
+    .from('stock_items')
+    .select('*')
+    .eq('disciplina', DISCIPLINA)
+  if (error) throw error
+  return (data || []).sort((a, b) => a.description.localeCompare(b.description, 'pt-BR'))
+}
+
+// O filtro vai no item embutido porque stock_movements não tem
+// coluna de disciplina. O !inner transforma o join em obrigatório:
+// sem ele o PostgREST devolveria a movimentação com o item nulo.
+export async function fetchStockMovements(limite = 500) {
+  const { data, error } = await supabase
+    .from('stock_movements')
+    .select(SELECT_MOV)
+    .eq('stock_item.disciplina', DISCIPLINA)
+    .order('created_at', { ascending: false })
+    .limit(limite)
+  if (error) throw error
+  return data || []
+}
+
+export async function fetchMovimentosDaOS(osId) {
+  const { data, error } = await supabase
+    .from('stock_movements')
+    .select(SELECT_MOV)
+    .eq('stock_item.disciplina', DISCIPLINA)
+    .eq('ti_os_id', osId)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data || []
+}
+
+export async function createStockItem({ description, category, unit, min_quantity = 0, code = null }) {
+  if (!description?.trim()) throw new Error('Descrição do item é obrigatória.')
+
+  const { data, error } = await supabase
+    .from('stock_items')
+    .insert({
+      description: description.trim(),
+      category: category || 'Outros',
+      unit: unit || 'pç',
+      min_quantity: Number(min_quantity) || 0,
+      code: code?.trim() || null,
+      quantity: 0,
+      disciplina: DISCIPLINA
+    })
+    .select('*')
+    .single()
+  if (error) throw error
+  return data
+}
+
+// Não aceita mudança de disciplina: a policy ti_central_update_items
+// também recusaria, mas errar aqui dá mensagem legível.
+export async function updateStockItem(id, updates) {
+  const { disciplina, quantity, ...limpo } = updates
+  if (disciplina && disciplina !== DISCIPLINA) {
+    throw new Error('Não é permitido mover um item para outra disciplina.')
+  }
+
+  const { data, error } = await supabase
+    .from('stock_items')
+    .update({ ...limpo, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('disciplina', DISCIPLINA)
+    .select('*')
+    .single()
+  if (error) throw error
+  return data
+}
+
+// linhas: [{ item_id, qty, unit_price?, total_price? }]
+export async function registrarEntrada({
+  mov_date, entry_type, supplier = null, nf_number = null, nf_url = null,
+  notes = null, linhas, byName
+}) {
+  const validas = (linhas || []).filter(l => l.item_id && Number(l.qty) > 0)
+  if (validas.length === 0) throw new Error('Adicione pelo menos um item com quantidade.')
+
+  const itens = await fetchStockItems()
+  const porId = new Map(itens.map(i => [i.id, i]))
+
+  for (const l of validas) {
+    if (!porId.has(l.item_id)) {
+      throw new Error('Item fora do catálogo de TI. Recarregue a tela.')
+    }
+  }
+
+  const gravadas = []
+  for (const l of validas) {
+    const item = porId.get(l.item_id)
+    const qty  = Number(l.qty)
+
+    const { data: mov, error: movErr } = await supabase
+      .from('stock_movements')
+      .insert({
+        stock_item_id: l.item_id,
+        type: 'entrada',
+        quantity: qty,
+        mov_date: mov_date || new Date().toISOString().split('T')[0],
+        entry_type, supplier, nf_number, nf_url, notes,
+        unit_price:  l.unit_price  != null ? Number(l.unit_price)  : null,
+        total_price: l.total_price != null ? Number(l.total_price) : null,
+        created_by_name: byName || 'Central de TI'
+      })
+      .select('*')
+      .single()
+    if (movErr) throw movErr
+
+    const { error: sErr } = await supabase
+      .from('stock_items')
+      .update({ quantity: Number(item.quantity || 0) + qty, updated_at: new Date().toISOString() })
+      .eq('id', l.item_id)
+      .eq('disciplina', DISCIPLINA)
+    if (sErr) throw sErr
+
+    gravadas.push(mov)
+  }
+
+  return gravadas
+}
+
+// osId é obrigatório — é o que sustenta o histórico por escola e o
+// relatório de prestação de contas. A trigger no banco recusaria de
+// todo jeito; aqui a mensagem é legível.
+export async function registrarSaida({
+  mov_date, osId, destination, requester = null, released_by = null,
+  received_by = null, notes = null, linhas, byName
+}) {
+  if (!osId) {
+    throw new Error('Toda saída de material de TI precisa estar vinculada a uma OS.')
+  }
+
+  const validas = (linhas || []).filter(l => l.item_id && Number(l.qty) > 0)
+  if (validas.length === 0) throw new Error('Adicione pelo menos um item com quantidade.')
+
+  const itens = await fetchStockItems()
+  const porId = new Map(itens.map(i => [i.id, i]))
+
+  // Saldo é conferido antes de gravar qualquer linha: melhor recusar
+  // o lote inteiro do que baixar metade e parar no meio.
+  for (const l of validas) {
+    const item = porId.get(l.item_id)
+    if (!item) throw new Error('Item fora do catálogo de TI. Recarregue a tela.')
+    if (Number(item.quantity || 0) < Number(l.qty)) {
+      throw new Error(
+        `Saldo insuficiente: ${item.description} — disponível ${item.quantity} ${item.unit}, pedido ${l.qty}.`
+      )
+    }
+  }
+
+  const gravadas = []
+  for (const l of validas) {
+    const item = porId.get(l.item_id)
+    const qty  = Number(l.qty)
+
+    const { data: mov, error: movErr } = await supabase
+      .from('stock_movements')
+      .insert({
+        stock_item_id: l.item_id,
+        type: 'saida',
+        quantity: qty,
+        mov_date: mov_date || new Date().toISOString().split('T')[0],
+        exit_type: 'Uso em OS',
+        ti_os_id: osId,
+        destination, requester, released_by, received_by, notes,
+        ti_ativo_id: l.ativo_id || null,
+        created_by_name: byName || 'Central de TI'
+      })
+      .select('*')
+      .single()
+    if (movErr) throw movErr
+
+    const { error: sErr } = await supabase
+      .from('stock_items')
+      .update({
+        quantity: Math.max(0, Number(item.quantity || 0) - qty),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', l.item_id)
+      .eq('disciplina', DISCIPLINA)
+    if (sErr) throw sErr
+
+    gravadas.push(mov)
+  }
+
+  return gravadas
+}
+
+// Ajuste de almoxarifado: tudo que baixa saldo sem ser entrega.
+// Perda, quebra, descarte, transferência entre almoxarifados,
+// estorno de entrada, correção de lançamento.
+//
+// Não exige OS — a trigger não o alcança. Exige, em compensação,
+// motivo + autor + justificativa, e a constraint no banco recusa se
+// faltar qualquer um. As validações abaixo existem para dar mensagem
+// legível antes do erro do Postgres, não para substituir a trava.
+//
+// linhas: [{ item_id, qty }]
+export async function registrarAjuste({
+  mov_date, motivo, justificativa, linhas, byName, osId = null
+}) {
+  if (!MOTIVOS_AJUSTE.includes(motivo)) {
+    throw new Error(`Motivo do ajuste inválido. Use um de: ${MOTIVOS_AJUSTE.join(', ')}.`)
+  }
+  const just = String(justificativa || '').trim()
+  if (just.length < MIN_JUSTIFICATIVA) {
+    throw new Error(
+      `A justificativa do ajuste é obrigatória e precisa explicar o que houve ` +
+      `(mínimo ${MIN_JUSTIFICATIVA} caracteres).`
+    )
+  }
+  const autor = String(byName || '').trim()
+  if (!autor) throw new Error('Não foi possível identificar quem está lançando o ajuste.')
+
+  const validas = (linhas || []).filter(l => l.item_id && Number(l.qty) > 0)
+  if (validas.length === 0) throw new Error('Adicione pelo menos um item com quantidade.')
+
+  const itens = await fetchStockItems()
+  const porId = new Map(itens.map(i => [i.id, i]))
+
+  for (const l of validas) {
+    const item = porId.get(l.item_id)
+    if (!item) throw new Error('Item fora do catálogo de TI. Recarregue a tela.')
+    if (Number(item.quantity || 0) < Number(l.qty)) {
+      throw new Error(
+        `Saldo insuficiente para ajustar: ${item.description} — ` +
+        `disponível ${item.quantity} ${item.unit}, pedido ${l.qty}.`
+      )
+    }
+  }
+
+  const gravadas = []
+  for (const l of validas) {
+    const item = porId.get(l.item_id)
+    const qty  = Number(l.qty)
+
+    const { data: mov, error: movErr } = await supabase
+      .from('stock_movements')
+      .insert({
+        stock_item_id: l.item_id,
+        type: 'ajuste',
+        quantity: qty,
+        mov_date: mov_date || new Date().toISOString().split('T')[0],
+        exit_type: motivo,
+        notes: just,
+        ti_os_id: osId,
+        ti_ativo_id: l.ativo_id || null,
+        released_by: autor,
+        created_by_name: autor
+      })
+      .select('*')
+      .single()
+    if (movErr) throw movErr
+
+    const { error: sErr } = await supabase
+      .from('stock_items')
+      .update({
+        quantity: Math.max(0, Number(item.quantity || 0) - qty),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', l.item_id)
+      .eq('disciplina', DISCIPLINA)
+    if (sErr) throw sErr
+
+    gravadas.push(mov)
+  }
+
+  return gravadas
+}
+
+// Estorno: movimento contrário, nunca delete. Mesmo padrão da
+// elétrica (OSDetail.jsx:280 de lá).
+//
+// Saída  → estorna como entrada, herdando a OS.
+// Entrada → estorna como AJUSTE com motivo 'Estorno de entrada'.
+//           Não pode ser saída: saída de item de TI exige OS, e uma
+//           entrada não tem OS para herdar. Ver docs/estoque-ti.md §3.1.
+// Ajuste → não se estorna; se o ajuste foi indevido, o material
+//           voltou, e isso é uma entrada com a nota fiscal de origem.
+export async function estornarMovimento(movId, byName, justificativa = null) {
+  const { data: orig, error: bErr } = await supabase
+    .from('stock_movements')
+    .select(SELECT_MOV)
+    .eq('stock_item.disciplina', DISCIPLINA)
+    .eq('id', movId)
+    .single()
+  if (bErr) throw bErr
+
+  if (orig.type === 'ajuste') {
+    throw new Error(
+      'Ajuste não se estorna. Se o material voltou ao almoxarifado, registre ' +
+      'uma entrada com o documento de origem.'
+    )
+  }
+
+  const autor = String(byName || '').trim() || 'Central de TI'
+  const qty   = Number(orig.quantity)
+  const ehSaida = orig.type === 'saida'
+
+  // O estorno de entrada é ajuste, e ajuste exige justificativa.
+  if (!ehSaida) {
+    const just = String(justificativa || '').trim()
+    if (just.length < MIN_JUSTIFICATIVA) {
+      throw new Error(
+        `Estornar uma entrada é um ajuste de almoxarifado e exige justificativa ` +
+        `(mínimo ${MIN_JUSTIFICATIVA} caracteres).`
+      )
+    }
+  }
+
+  const { data: item, error: iErr } = await supabase
+    .from('stock_items')
+    .select('quantity, description, unit')
+    .eq('id', orig.stock_item_id)
+    .single()
+  if (iErr) throw iErr
+
+  if (!ehSaida && Number(item.quantity || 0) < qty) {
+    throw new Error(
+      `Não dá para estornar a entrada: o material já saiu. Saldo atual de ` +
+      `${item.description} é ${item.quantity} ${item.unit}, e a entrada foi de ${qty}.`
+    )
+  }
+
+  const comum = {
+    stock_item_id: orig.stock_item_id,
+    quantity: qty,
+    mov_date: new Date().toISOString().split('T')[0],
+    ti_os_id: orig.ti_os_id,
+    ti_ativo_id: orig.ti_ativo_id,
+    created_by_name: autor
+  }
+
+  const payload = ehSaida
+    ? {
+        ...comum,
+        type: 'entrada',
+        entry_type: 'Transferência',
+        notes: `Estorno da saída ${movId}`
+      }
+    : {
+        ...comum,
+        type: 'ajuste',
+        exit_type: 'Estorno de entrada',
+        released_by: autor,
+        notes: String(justificativa).trim()
+      }
+
+  const { data: mov, error: movErr } = await supabase
+    .from('stock_movements')
+    .insert(payload)
+    .select('*')
+    .single()
+  if (movErr) throw movErr
+
+  const saldo = ehSaida
+    ? Number(item.quantity || 0) + qty
+    : Math.max(0, Number(item.quantity || 0) - qty)
+
+  const { error: sErr } = await supabase
+    .from('stock_items')
+    .update({ quantity: saldo, updated_at: new Date().toISOString() })
+    .eq('id', orig.stock_item_id)
+    .eq('disciplina', DISCIPLINA)
+  if (sErr) throw sErr
+
+  return mov
+}
+
+// ── Importação de catálogo por CSV ───────────────────────────
+//
+// ATENÇÃO: parseCsvItens é puro e pode rodar à vontade.
+// importarItens ESCREVE no catálogo e está BLOQUEADO até a
+// elétrica filtrar por disciplina. Ver docs/estoque-ti.md, topo.
+//
+// Formato: descricao;categoria;unidade;minimo;codigo
+// Separador ; ou , — a primeira linha pode ser cabeçalho.
+
+export function parseCsvItens(texto) {
+  const linhas = String(texto || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+  if (linhas.length === 0) return { itens: [], erros: [] }
+
+  const sep = (linhas[0].match(/;/g) || []).length >= (linhas[0].match(/,/g) || []).length ? ';' : ','
+  const primeira = linhas[0].toLowerCase()
+  const temCabecalho = primeira.includes('descri') || primeira.includes('categoria')
+
+  const itens = []
+  const erros = []
+
+  linhas.slice(temCabecalho ? 1 : 0).forEach((linha, i) => {
+    const n = i + (temCabecalho ? 2 : 1)
+    const [description, category, unit, min_quantity, code] = linha.split(sep).map(c => (c || '').trim())
+
+    if (!description) { erros.push(`Linha ${n}: descrição vazia.`); return }
+
+    if (category && !CATEGORIAS_ESTOQUE.includes(category)) {
+      erros.push(`Linha ${n}: categoria "${category}" não existe. Use uma de: ${CATEGORIAS_ESTOQUE.join(', ')}.`)
+      return
+    }
+    if (unit && !UNIDADES_ESTOQUE.includes(unit)) {
+      erros.push(`Linha ${n}: unidade "${unit}" não existe. Use uma de: ${UNIDADES_ESTOQUE.join(', ')}.`)
+      return
+    }
+    const minimo = min_quantity ? Number(String(min_quantity).replace(',', '.')) : 0
+    if (Number.isNaN(minimo)) { erros.push(`Linha ${n}: mínimo "${min_quantity}" não é número.`); return }
+
+    itens.push({
+      description,
+      category: category || 'Outros',
+      unit: unit || 'pç',
+      min_quantity: minimo,
+      code: code || null
+    })
+  })
+
+  const vistos = new Set()
+  itens.forEach(it => {
+    const chave = it.description.toLowerCase()
+    if (vistos.has(chave)) erros.push(`Descrição repetida no arquivo: "${it.description}".`)
+    vistos.add(chave)
+  })
+
+  return { itens, erros }
+}
+
+export async function importarItens(itens) {
+  if (!Array.isArray(itens) || itens.length === 0) {
+    throw new Error('Nada a importar.')
+  }
+
+  const { data, error } = await supabase
+    .from('stock_items')
+    .insert(itens.map(i => ({ ...i, quantity: 0, disciplina: DISCIPLINA })))
+    .select('*')
+  if (error) throw error
+  return data || []
 }
 
 // ── Patrimônio ───────────────────────────────────────────────
