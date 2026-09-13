@@ -5,6 +5,7 @@ import {
 import Dashboard from './Dashboard'
 import CreateOS from './CreateOS'
 import OSDetail from './OSDetail'
+import StockManager from './StockManager'
 
 // ── Avatar ───────────────────────────────────────────────────
 function Avatar({ initials, size = 28 }) {
@@ -335,6 +336,7 @@ export default function ManagerApp({ profile }) {
           <button className={`sidebar-link${view === 'create' ? ' active' : ''}`} onClick={() => setView('create')}>➕ Novo chamado</button>
           <button className={`sidebar-link${view === 'escolas' ? ' active' : ''}`} onClick={() => setView('escolas')}>🏫 Escolas</button>
           <button className={`sidebar-link${view === 'equipe' ? ' active' : ''}`} onClick={() => setView('equipe')}>👥 Equipe</button>
+          <button className={`sidebar-link${view === 'estoque' ? ' active' : ''}`} onClick={() => setView('estoque')}>📦 Estoque</button>
         </div>
 
         <div style={{ borderTop: '0.5px solid #e5e3dc', paddingTop: '1rem' }}>
@@ -383,6 +385,13 @@ export default function ManagerApp({ profile }) {
 
         {!loading && view === 'equipe' && (
           <Equipe tecnicos={tecnicos} osList={osList} onOpen={openOS} />
+        )}
+
+        {/* O Estoque carrega os próprios dados — item e movimentação não
+            entram no loadData daqui, que é do fluxo de OS. osList vai junto
+            porque toda saída de material se amarra a uma OS. */}
+        {!loading && view === 'estoque' && (
+          <StockManager profile={profile} osList={osList} onReload={loadData} />
         )}
       </main>
     </div>

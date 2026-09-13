@@ -189,11 +189,30 @@ O mínimo de 5 existe para que um ponto final não conte como justificativa.
 `registrarAjuste()` valida os mesmos três antes de gravar, só para dar
 mensagem legível em vez do erro do Postgres — não para substituir a trava.
 
-A constraint é global à tabela, mas **nasce dormente para a Elétrica**:
-nenhuma das 178 linhas usa `type='ajuste'` e o código de lá não produz esse
-valor. Provada na própria migration, em cinco casos: Elétrica intacta, saída
-de TI sem OS ainda barrada, ajuste completo sem OS passando, ajuste sem
-motivo barrado, ajuste com justificativa vazia barrado.
+Provada na própria migration, em cinco casos: Elétrica intacta, saída de TI
+sem OS ainda barrada, ajuste completo sem OS passando, ajuste sem motivo
+barrado, ajuste com justificativa vazia barrado.
+
+#### ⚠ A trava é CHECK, e CHECK é global à tabela
+
+Registrado conscientemente, não por descuido.
+
+`stock_movements_ajuste_exige_rastreio` é uma **CHECK constraint da tabela
+inteira**, não uma trigger com filtro de disciplina. CHECK não enxerga outra
+tabela, então não há como escopá-la a `disciplina='ti'`.
+
+**Consequência:** no dia em que a Central OS Elétrica passar a usar
+`type='ajuste'`, ela herda uma regra decidida aqui, sem ter participado da
+decisão. Hoje nasce dormente — nenhuma das 178 linhas usa `ajuste` e o
+código de lá não produz esse valor — mas a herança é real e não expira.
+
+A regra herdada é defensável por si (ajuste sem motivo, autor e
+justificativa é buraco de auditoria em qualquer disciplina), e por isso foi
+mantida. Se um dia for preciso escopar, o único caminho é mover a validação
+para dentro da função da trigger, que já faz o lookup da disciplina — mas aí
+ela vira código executando em toda escrita da Elétrica, exatamente o oposto
+da troca que fizemos na seção 3. A escolha foi consciente: uma constraint
+declarativa e dormente custa menos que uma trigger a mais.
 
 #### Efeito no estorno
 
@@ -226,7 +245,52 @@ Um item cadastrado por engano fica no catálogo com saldo zero. Se um dia o
 volume justificar, o caminho é `ADD COLUMN ativo boolean` — coluna nova e
 anulável, aditiva — e nunca o DELETE.
 
-### 4.2 A saída vinculada à OS grava `ti_os_id` **e** `destination`
+### 4.2 Não há upload de arquivo da nota fiscal
+
+A tela da Elétrica oferece upload do PDF da NF para o bucket `nf-docs` do
+Supabase Storage. **Esse bucket não existe.** Os buckets do projeto são
+`os-photos`, `civil-photos`, `sf-anexos` e `af-anexos`.
+
+O código de lá faz `if (!upErr) { ...grava a url... }` — o erro é engolido,
+nada é gravado e o usuário vê a operação concluir. Ou seja, o upload de nota
+fiscal da Elétrica nunca funcionou, silenciosamente; nenhuma das 178
+movimentações tem `nf_url` preenchida.
+
+Na TI o campo de arquivo **não foi reproduzido**. A aba Notas fiscais lista
+as NFs por número, fornecedor, data e itens, **sem anexo**. `nf_number`
+continua sendo registrado como texto, e a coluna `nf_url` segue no schema
+para quando houver onde guardar o arquivo. Botão que finge funcionar é pior
+que botão ausente.
+
+Se um dia houver anexo de verdade, **o caminho não é criar bucket novo no
+Supabase** — é `media.aladim.digital`, que já aceita a disciplina `ti` e já
+é por onde passam as fotos de OS. Um caminho de mídia, não dois. Falta
+confirmar se a API de mídia aceita um caminho que não seja de OS (hoje o
+upload é `/upload/<disciplina>/<os_id>/<stage>`), e isso depende de quem
+opera o VPS.
+
+#### O padrão é sistêmico, não pontual
+
+O `nf-docs` é **falha silenciosa por erro capturado e descartado**: o código
+chama o upload, recebe o erro, testa `if (!upErr)` e segue adiante sem
+gravar nada nem avisar ninguém. Nunca foi detectada porque não havia como
+perceber — a tela conclui normalmente, e a única evidência do problema é uma
+coluna que ficou toda nula em produção.
+
+É a **quinta ocorrência do mesmo padrão nesta infraestrutura em dois dias**,
+ao lado de: `cron-atrasos` ausente, workflow de triagem despublicado,
+`/po/anexo` respondendo 401 por variável de ambiente faltando, e
+`auditor-almox-receiver` sem processo rodando. Cinco componentes que o
+sistema dava como funcionando e que não funcionavam.
+
+O que une os cinco não é o bug, é a **ausência de sinal**: em nenhum deles a
+falha produzia erro visível para quem usava. Tratar cada um como incidente
+isolado erra o alvo — a lição que se repete é que, nesta infraestrutura,
+**"não deu erro" não é evidência de que funciona**. A verificação tem que
+olhar o efeito produzido (a coluna preenchida, o arquivo no destino, o
+processo vivo, a rota respondendo 200), não a ausência de reclamação.
+
+### 4.3 A saída vinculada à OS grava `ti_os_id` **e** `destination`
 
 Na Elétrica a saída grava só `destination` (nome da escola em texto livre); a
 OS só é amarrada depois, na entrega de material dentro do `OSDetail`.
