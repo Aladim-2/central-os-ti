@@ -181,6 +181,8 @@ não rejeita campo desconhecido no multipart.
   `ti_orders` não tem. Decisão à parte.
 - **Notificação por WhatsApp ao técnico** — frente separada.
 - **Migração do `OSDetail.jsx`** — a dívida da seção 3.
+- **Solicitação de material pelo técnico** — não existe, e o Valter quer paridade
+  com a Elétrica. Ver §7.
 
 ## 6. Achado colateral
 
@@ -189,3 +191,90 @@ cores dele ainda tem os status da Elétrica (`'Em Vistoria'`, `'Aguardando
 Material'`, `'Concluída'`). Se fosse reaproveitado, todo status da TI cairia no
 fallback e apareceria escrito `vistoria` em cinza. As telas de TI definem badge
 local a partir do `STATUS` de `supabase.js` — e o app do técnico faz o mesmo.
+
+---
+
+## 7. Solicitação de material — NÃO EXISTE no app do técnico
+
+Conferido em 2026-09-13, depois de um técnico relatar que "solicitou material".
+Não há tela, não há tabelinha de item e quantidade, e não há envio para a
+central. O grep fecha a questão:
+
+```
+grep -rn "materials_needed" src/     → zero linhas
+grep -rin "material" src/pages/tecnico/   → zero linhas
+```
+
+`ti_orders.materials_needed` existe com default `'[]'::jsonb` e **nenhum código
+do repositorio a escreve**. Schema adiantado em relação à UI — que é comum, e
+não se anuncia.
+
+O que o técnico tem hoje, inteiro:
+
+| Ação | O que grava |
+|---|---|
+| Aceitar | `recebida → vistoria`, sem foto |
+| Avançar etapa | novo status + foto(s) exigida(s) + **nota de texto livre** → `observations` |
+| Foto livre de execução | sobe direto, sem transição |
+
+As duas chamadas de `enfileirarTransicao` (`OSExec.jsx:119` e `:147`) passam
+`fotos`, `nota`, `byName`, `byId`. O parâmetro `extra` **nunca é passado** e
+fica `{}` pelo default.
+
+**A armadilha de vocabulário, que produziu o mal-entendido:** o status
+`aguardando` chama-se *"Aguardando material"* na tela. Mover a OS para lá parece
+"solicitar material" para quem opera, e não é — não há item, quantidade nem
+destinatário. Nome de estado descreve a OS; não promete a ação que o nome sugere.
+
+**Frente a construir, não bug a corrigir.** O `StockManager.jsx` tem entrada e
+saída de estoque, mas é tela do gestor e é movimentação de almoxarifado — outro
+assunto que a requisição do campo.
+
+---
+
+## 8. 🔴 Excluir uma OS com fila pendente no aparelho
+
+Conferido em 2026-09-13, antes de excluir uma OS de teste. **Não foi excluida
+por causa disto.**
+
+As FKs para `ti_orders(id)`:
+
+| Tabela | Ao excluir a OS |
+|---|---|
+| `ti_os_history.os_id` | **ON DELETE CASCADE** |
+| `ti_os_photos.os_id` | **ON DELETE CASCADE** |
+| `ti_wa_log.os_id` | **ON DELETE CASCADE** |
+| `ti_ativo_historico.os_id` | ON DELETE SET NULL |
+
+Excluir apaga junto o histórico, as fotos e **o log de WhatsApp daquela OS** —
+quem exclui uma OS de teste apaga a evidência do teste.
+
+No aparelho, a fila não sabe da exclusão. Por item, na drenagem:
+
+1. `urlDaFotoRegistrada(client_uuid)` — SELECT não acha nada, **sem erro**
+2. POST no `midia-api` — o `os_id` é só um pedaço do caminho, o servidor não
+   valida contra o banco
+3. INSERT em `ti_os_photos` — **violação de FK, `23503`**
+
+`uploadPhoto` trata apenas `23505`; `23503` cai no `throw`. O item **fica na
+fila para sempre**, retentando a cada 60s. Não some, não vira órfão, não
+aparece como erro — fica indrenável. Não há UI para descartar item da fila: a
+única saída é limpar os dados do app, perdendo o trabalho.
+
+### O agravamento depende da ordem
+
+Enquanto o upload falha no passo 2, nada é gravado no servidor de mídia.
+**Consertar o upload com a OS já excluída** faz o passo 2 passar: grava o
+arquivo, o passo 3 estoura a FK, a retentativa volta ao passo 1, que continua
+sem achar linha — e **sobe o arquivo de novo**. Um arquivo novo por foto por
+minuto, sem limpeza automática. Quatro fotos ≈ 5.700 arquivos órfãos por dia.
+O store `arquivos_orfaos` nem conta: usa `put` com `clientUuid` de chave, e
+sobrescreve.
+
+**Regra operacional:** enquanto houver fila pendente em algum aparelho, a OS
+correspondente **não se exclui**. A ordem é consertar o upload, deixar drenar,
+conferir que a fila zerou, e só então excluir.
+
+A idempotência do `client_uuid` protege contra **duplicar linha**. Ela não
+protege contra **destino que deixou de existir** — são riscos diferentes, e a
+guarda de um não cobre o outro.

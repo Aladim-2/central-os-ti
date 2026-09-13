@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { signOut, fetchOS, subscribeOS, STATUS, drenarFila } from '../../supabase'
-import { contarPendentes } from '../../lib/filaOffline'
+import { listarFila } from '../../lib/filaOffline'
 import OSExec from './OSExec'
 import TrocarSenha from '../TrocarSenha'
 import Versao from '../../Versao'
@@ -55,6 +55,7 @@ export default function TecnicoApp({ profile }) {
   const [verSenha,  setVerSenha]  = useState(false)
   const [loading,   setLoading]   = useState(true)
   const [pendentes, setPendentes] = useState(0)
+  const [falhaFila, setFalhaFila] = useState(null)
   const [online,    setOnline]    = useState(navigator.onLine)
   const [sincronizando, setSincronizando] = useState(false)
 
@@ -69,8 +70,23 @@ export default function TecnicoApp({ profile }) {
     } finally { setLoading(false) }
   }, [profile.id])
 
+  // Conta a fila e, no mesmo passo, expõe a falha. `tentativas` e
+  // `ultimoErro` já eram gravados a cada retentativa por drenarFila e
+  // não eram lidos por tela nenhuma: o técnico via "Enviando agora"
+  // enquanto o mesmo erro se repetia a cada 60s. Gravar sem exibir é
+  // pior que não gravar — quem escreveu fica tranquilo porque o dado
+  // existe, e quem opera fica tranquilo porque a tela não acusa nada.
   const atualizarPendentes = useCallback(async () => {
-    try { setPendentes(await contarPendentes()) } catch { /* sem fila disponível */ }
+    try {
+      const itens = await listarFila()
+      setPendentes(itens.length)
+      const travado = itens.find(i => (i.tentativas || 0) > 0) || null
+      setFalhaFila(travado ? {
+        tentativas: travado.tentativas,
+        osNumero:   travado.osNumero,
+        erro:       travado.ultimoErro || 'sem detalhe'
+      } : null)
+    } catch { /* sem fila disponível */ }
   }, [])
 
   const sincronizar = useCallback(async () => {
@@ -218,15 +234,33 @@ export default function TecnicoApp({ profile }) {
             </p>
 
             {pendentes > 0 && (
-              <div style={{ background:'#FFF7ED', border:'0.5px solid #FCD34D', borderRadius:10, padding:'10px 14px', marginBottom:12 }}>
-                <p style={{ fontSize:12, fontWeight:600, color:'#92400E', marginBottom:2 }}>
-                  ⏳ {pendentes} registro(s) guardado(s) no aparelho
+              <div style={{
+                background:   falhaFila ? '#FEF2F2' : '#FFF7ED',
+                border:       `0.5px solid ${falhaFila ? '#FCA5A5' : '#FCD34D'}`,
+                borderRadius: 10, padding:'10px 14px', marginBottom:12
+              }}>
+                <p style={{ fontSize:12, fontWeight:600, color: falhaFila ? '#991B1B' : '#92400E', marginBottom:2 }}>
+                  {falhaFila ? '⚠' : '⏳'} {pendentes} registro(s) guardado(s) no aparelho
                 </p>
-                <p style={{ fontSize:11, color:'#92400E' }}>
-                  {online
-                    ? 'Enviando agora. Pode continuar trabalhando.'
-                    : 'Sobe sozinho quando a internet voltar. Nada se perde.'}
+                <p style={{ fontSize:11, color: falhaFila ? '#991B1B' : '#92400E' }}>
+                  {falhaFila
+                    ? `Não está conseguindo enviar — ${falhaFila.tentativas} tentativa(s) no ${falhaFila.osNumero}. Nada se perdeu: NÃO desinstale o app nem limpe os dados. Mostre esta tela ao suporte.`
+                    : online
+                      ? 'Enviando agora. Pode continuar trabalhando.'
+                      : 'Sobe sozinho quando a internet voltar. Nada se perde.'}
                 </p>
+                {/* O texto cru do erro, selecionável: é o que identifica a causa
+                    sem depender de acesso ao aparelho. Vinha sendo gravado a
+                    cada retentativa e não aparecia em lugar nenhum. */}
+                {falhaFila && (
+                  <p style={{
+                    fontSize:10, fontFamily:'ui-monospace, monospace', color:'#7F1D1D',
+                    background:'#FEE2E2', borderRadius:6, padding:'6px 8px', marginTop:6,
+                    userSelect:'text', wordBreak:'break-word'
+                  }}>
+                    {falhaFila.erro}
+                  </p>
+                )}
               </div>
             )}
 

@@ -137,6 +137,24 @@ anulável, índice novo, policy nova PERMISSIVE ou RESTRICTIVE. Nunca
 
 ## Pendências abertas
 
+**🔴 REGRA ATIVA — não excluir OS com fila pendente em aparelho.** Descoberto em
+13/09/2026 com 4 transições presas no celular de um técnico. `ti_os_photos.os_id`
+e `ti_os_history.os_id` são **ON DELETE CASCADE**; a fila no aparelho não sabe da
+exclusão e passa a bater em `23503` no insert, que `uploadPhoto` não trata — o
+item fica indrenável para sempre, retentando a cada 60s. Pior: consertar o
+upload **depois** da exclusão faz cada retentativa gravar um arquivo novo no
+`media.aladim.digital`, sem limpeza. Ordem correta: consertar o upload, deixar
+drenar, conferir fila zerada, só então excluir. Detalhe em `docs/app-tecnico.md`
+§8.
+
+**Upload de foto da TI quebrado — EM ABERTO, causa não identificada.** Desde
+13/09/2026: `ti_os_photos` vazia, toda transição com foto presa na fila, e a
+única que passou foi o aceite, que não exige foto. Eliminado: token ausente no
+build (está no bundle, 64 chars). Falta testar, e só fecha com o teste: campo
+desconhecido no multipart, disciplina `ti` não liberada, ou token sem escopo de
+`ti`. O erro exato está em `ultimoErro` no IndexedDB do aparelho — e desde
+13/09 aparece na tela, ver abaixo.
+
 **Notificação por WhatsApp da TI — executada em 13/09/2026, falta o
 último passo.** `WEBHOOK_TOKEN_TI` definido no VPS; `/webhook/nova-os-ti`
 no ar, **sem fallback** para o token da Elétrica; serviço recriado no PM2
@@ -229,7 +247,12 @@ carregamento da página, e app instalado que fica dias aberto nunca checa.
 - `index.html:7` usa `apple-mobile-web-app-capable`, depreciado; o console
   pede `mobile-web-app-capable` junto.
 
-**A construir:** Relatórios, Usuários, histórico por escola.
+**A construir:** Relatórios, Usuários, histórico por escola, e a
+**solicitação de material pelo técnico** — conferido em 13/09/2026 que não
+existe: sem tela, e `materials_needed` sem nenhum escritor no código. O Valter
+quer paridade com a Elétrica. Não é bug, é frente. Cuidado com o vocabulário: o
+status `aguardando` chama-se "Aguardando material" na tela e **parece** a
+funcionalidade. Ver `docs/app-tecnico.md` §7.
 
 ---
 
