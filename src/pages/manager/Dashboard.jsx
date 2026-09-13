@@ -144,7 +144,13 @@ function CardOS({ os, onOpen, onMaps }) {
         </div>
       )}
 
-      <p style={{ fontSize: 13, fontWeight: 500, marginBottom: 6, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+      {/* Clamp de 3 linhas: o card e resumo. O texto completo fica no
+          card expandido do painel de material e na OS aberta. */}
+      <p style={{
+        fontSize: 13, fontWeight: 500, marginBottom: 6, lineHeight: 1.5,
+        overflow: 'hidden', textOverflow: 'ellipsis',
+        display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical'
+      }}>
         {os.descricao}
       </p>
 
@@ -250,7 +256,7 @@ export default function Dashboard({ osList, onOpen, onNew, onUpdated, profile })
 
   function novoId() {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID()
-    return 'mat-' + Date.now() + '-' + Math.random().toString(16).slice(2)
+    return 'mat-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8)
   }
 
   function addItem() {
@@ -692,7 +698,7 @@ export default function Dashboard({ osList, onOpen, onNew, onUpdated, profile })
                             <h2>Escola / Unidade</h2><div class="info"><p><strong>🏫 ${matAberta.location?.name || '—'}</strong></p>${matAberta.location?.address ? `<p>📍 ${matAberta.location.address}${matAberta.location.neighborhood ? ' — ' + matAberta.location.neighborhood : ''}, Itabuna/BA</p>` : ''}${matAberta.location?.director ? `<p>👤 Dir.: ${matAberta.location.director}</p>` : ''}${matAberta.location?.phone ? `<p>📞 ${matAberta.location.phone}</p>` : ''}</div>
                             <h2>Serviço</h2><div class="info"><p>${matAberta.descricao}</p>${matAberta.diagnostico ? `<p style="margin-top:8px"><strong>Diagnóstico:</strong> ${matAberta.diagnostico}</p>` : ''}</div>
                             <h2>Materiais Solicitados</h2><table><thead><tr><th>Item</th><th>Qtd</th><th>Unidade</th><th>Status</th></tr></thead><tbody>${mats}</tbody></table>
-                            <div class="rod"><p>Central OS TI — SEMED Itabuna</p><p>Eng. Valter Alves — CREA-BA 0519903544/D</p><p style="margin-top:30px">_________________________________</p><p>Eng. Valter Alves — CREA-BA 0519903544/D</p></div>
+                            <div class="rod"><p>Central OS TI — SEMED Itabuna &nbsp;·&nbsp; (73) 3618-7545</p><p>Eng. Valter Alves — CREA-BA 0519903544/D</p><p style="margin-top:30px">_________________________________</p><p>Eng. Valter Alves — CREA-BA 0519903544/D</p></div>
                             </body></html>`
                             const win = window.open('', '_blank')
                             win.document.write(html)

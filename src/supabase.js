@@ -551,8 +551,12 @@ export const CATEGORIAS_ESTOQUE = [
 ]
 
 // Unidade predominante da TI é peça. As unidades de volume da
-// elétrica (rolo, pct, cx) não foram trazidas.
-export const UNIDADES_ESTOQUE = ['pç', 'un', 'm', 'kit']
+// elétrica (cx, pct, rolo) foram trazidas em 13/09/2026: material de
+// TI chega em caixa e pacote com a mesma frequência, e a lista curta
+// obrigava a mentir a unidade na hora de pedir. Vale para o seletor
+// do painel de material, para o cadastro de item no StockManager e
+// para a validação da importação por CSV — os três leem daqui.
+export const UNIDADES_ESTOQUE = ['un', 'pç', 'cx', 'pct', 'rolo', 'm', 'kit']
 
 export const TIPOS_ENTRADA = ['Compra', 'Doação', 'Transferência']
 
