@@ -1062,6 +1062,94 @@ export async function fetchAtivoPorQr(qrSlug) {
   return data
 }
 
+// ── Notificações por WhatsApp ────────────────────────────────
+//
+// O envio NÃO acontece aqui. O caminho é: gatilho em ti_orders →
+// POST no webhook-nova-os (VPS) → Meta Cloud API. Esta camada só
+// lê e escreve a configuração, e resolve para QUEM cada opção
+// aponta de fato.
+//
+// Essa resolução existe porque as opções são booleanos e os
+// destinatários são pessoas: notify_gestor ligado não significa
+// que há gestor com telefone. Ver docs/notificacoes-ti.md.
+
+// Formato aceito pela Meta: dígitos, DDI incluso, sem +.
+// 55 + DDD (2) + número (8 ou 9) = 12 ou 13 dígitos.
+export function telefoneValido(tel) {
+  const d = String(tel || '').replace(/\D/g, '')
+  return d.length >= 12 && d.length <= 13 && d.startsWith('55')
+}
+
+export function formatarTelefone(tel) {
+  const d = String(tel || '').replace(/\D/g, '')
+  if (d.length === 13) return `(${d.slice(2,4)}) ${d.slice(4,9)}-${d.slice(9)}`
+  if (d.length === 12) return `(${d.slice(2,4)}) ${d.slice(4,8)}-${d.slice(8)}`
+  return tel || ''
+}
+
+export async function fetchWaConfig() {
+  const { data, error } = await supabase
+    .from('ti_wa_config')
+    .select('*')
+    .eq('id', 1)
+    .maybeSingle()
+  if (error) throw error
+  return data
+}
+
+export async function updateWaConfig(mudancas) {
+  const { data, error } = await supabase
+    .from('ti_wa_config')
+    .update({ ...mudancas, updated_at: new Date().toISOString() })
+    .eq('id', 1)
+    .select('*')
+  if (error) throw error
+  // UPDATE recusado por RLS não levanta erro: afeta zero linhas e
+  // devolve error nulo. Sem esta conferência a tela diria "salvo"
+  // com o banco intacto.
+  if (!data || data.length === 0) {
+    throw new Error('Seu perfil não tem permissão para alterar a configuração de avisos.')
+  }
+  return data[0]
+}
+
+// Para quem cada opção aponta, com o telefone e se ele serve.
+export async function fetchDestinatariosWa() {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, name, role, phone')
+    .in('role', ['gestor', 'central_ti', 'tecnico_ti'])
+  if (error) throw error
+
+  const mapear = p => ({
+    id: p.id,
+    nome: p.name,
+    telefone: p.phone || null,
+    valido: telefoneValido(p.phone)
+  })
+
+  const porPapel = papel => (data || [])
+    .filter(p => p.role === papel)
+    .map(mapear)
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+
+  return {
+    gestor:   porPapel('gestor'),
+    central:  porPapel('central_ti'),
+    tecnicos: porPapel('tecnico_ti')
+  }
+}
+
+export async function fetchWaLog(limite = 50) {
+  const { data, error } = await supabase
+    .from('ti_wa_log')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limite)
+  if (error) throw error
+  return data || []
+}
+
 // ── SLA ──────────────────────────────────────────────────────
 
 export async function fetchSlaRisco() {

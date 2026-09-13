@@ -6,6 +6,7 @@ import Dashboard from './Dashboard'
 import CreateOS from './CreateOS'
 import OSDetail from './OSDetail'
 import StockManager from './StockManager'
+import NotificacaoConfig from './NotificacaoConfig'
 import TrocarSenha from '../TrocarSenha'
 
 // ── Avatar ───────────────────────────────────────────────────
@@ -338,6 +339,7 @@ export default function ManagerApp({ profile }) {
           <button className={`sidebar-link${view === 'escolas' ? ' active' : ''}`} onClick={() => setView('escolas')}>🏫 Escolas</button>
           <button className={`sidebar-link${view === 'equipe' ? ' active' : ''}`} onClick={() => setView('equipe')}>👥 Equipe</button>
           <button className={`sidebar-link${view === 'estoque' ? ' active' : ''}`} onClick={() => setView('estoque')}>📦 Estoque</button>
+          <button className={`sidebar-link${view === 'notificacoes' ? ' active' : ''}`} onClick={() => setView('notificacoes')}>🔔 Notificações</button>
         </div>
 
         <div style={{ borderTop: '0.5px solid #e5e3dc', paddingTop: '1rem' }}>
@@ -401,6 +403,10 @@ export default function ManagerApp({ profile }) {
             porque toda saída de material se amarra a uma OS. */}
         {!loading && view === 'estoque' && (
           <StockManager profile={profile} osList={osList} onReload={loadData} />
+        )}
+
+        {!loading && view === 'notificacoes' && (
+          <NotificacaoConfig profile={profile} />
         )}
 
         {!loading && view === 'senha' && (
