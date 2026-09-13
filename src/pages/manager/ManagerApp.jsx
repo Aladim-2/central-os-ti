@@ -6,6 +6,7 @@ import Dashboard from './Dashboard'
 import CreateOS from './CreateOS'
 import OSDetail from './OSDetail'
 import StockManager from './StockManager'
+import TrocarSenha from '../TrocarSenha'
 
 // ── Avatar ───────────────────────────────────────────────────
 function Avatar({ initials, size = 28 }) {
@@ -347,6 +348,14 @@ export default function ManagerApp({ profile }) {
               <p style={{ fontSize: 10, color: '#888780' }}>{papelRotulo}</p>
             </div>
           </div>
+          {/* Junto do perfil, não no menu de trabalho: trocar senha é conta,
+              não é tarefa. */}
+          <button
+            className={`sidebar-link${view === 'senha' ? ' active' : ''}`}
+            onClick={() => setView('senha')}
+          >
+            🔑 Trocar senha
+          </button>
           <button className="sidebar-link" onClick={signOut} style={{ color: '#991B1B' }}>🚪 Sair</button>
         </div>
       </nav>
@@ -392,6 +401,10 @@ export default function ManagerApp({ profile }) {
             porque toda saída de material se amarra a uma OS. */}
         {!loading && view === 'estoque' && (
           <StockManager profile={profile} osList={osList} onReload={loadData} />
+        )}
+
+        {!loading && view === 'senha' && (
+          <TrocarSenha profile={profile} onVoltar={() => setView('dash')} />
         )}
       </main>
     </div>

@@ -80,6 +80,74 @@ export async function signOut() {
   if (error) throw error
 }
 
+// ── Troca de senha pelo próprio usuário ──────────────────────
+//
+// ATENÇÃO AO PORQUÊ DA RE-AUTENTICAÇÃO:
+// supabase.auth.updateUser({ password }) exige APENAS uma sessão
+// válida — não confere a senha antiga. Sem o passo abaixo, o campo
+// "senha atual" da tela seria decoração: qualquer coisa digitada
+// ali passaria, e quem pegasse um celular destravado trocaria a
+// senha sem saber a anterior.
+//
+// signInWithPassword com o mesmo usuário é o único jeito de provar
+// que a pessoa sabe a senha atual sem Edge Function nem RLS nova.
+// Em caso de erro ele NÃO derruba a sessão existente; em caso de
+// acerto apenas a renova, para o mesmo usuário.
+//
+// Comprimento mínimo é do cliente. O Supabase tem a própria
+// política, e se ele recusar a mensagem dele sobe sem tradução —
+// mensagem genérica esconde o motivo real.
+export const SENHA_MINIMA = 8
+
+export async function trocarSenha(senhaAtual, senhaNova) {
+  const atual = String(senhaAtual || '')
+  const nova  = String(senhaNova || '')
+
+  if (!atual) throw new Error('Informe a senha atual.')
+  if (nova.length < SENHA_MINIMA) {
+    throw new Error(`A nova senha precisa ter pelo menos ${SENHA_MINIMA} caracteres.`)
+  }
+  if (nova === atual) {
+    throw new Error('A nova senha é igual à atual. Escolha outra.')
+  }
+
+  const { data: { user }, error: userErr } = await supabase.auth.getUser()
+  if (userErr || !user?.email) {
+    throw new Error('Sua sessão expirou. Entre de novo para trocar a senha.')
+  }
+
+  const { error: authErr } = await supabase.auth.signInWithPassword({
+    email: user.email,
+    password: atual
+  })
+  if (authErr) throw new Error('Senha atual incorreta.')
+
+  const { error } = await supabase.auth.updateUser({ password: nova })
+  if (error) throw new Error(error.message)
+
+  return true
+}
+
+// Força da senha, só para orientar quem digita. Não bloqueia nada
+// além do mínimo acima: medidor que reprova vira senha anotada em
+// papel.
+export function forcaDaSenha(senha) {
+  const s = String(senha || '')
+  if (!s) return { nivel: 0, rotulo: '', cor: '#e5e3dc' }
+
+  let pontos = 0
+  if (s.length >= 8)  pontos++
+  if (s.length >= 12) pontos++
+  if (/[a-z]/.test(s) && /[A-Z]/.test(s)) pontos++
+  if (/[0-9]/.test(s)) pontos++
+  if (/[^A-Za-z0-9]/.test(s)) pontos++
+
+  if (pontos <= 2) return { nivel: 1, rotulo: 'fraca',  cor: '#DC2626' }
+  if (pontos === 3) return { nivel: 2, rotulo: 'média',  cor: '#D97706' }
+  if (pontos === 4) return { nivel: 3, rotulo: 'boa',    cor: '#16A34A' }
+  return { nivel: 4, rotulo: 'forte', cor: '#065F46' }
+}
+
 export async function getProfile(userId) {
   const { data, error } = await supabase
     .from('profiles')

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { signOut, fetchOS, subscribeOS, STATUS, drenarFila } from '../../supabase'
 import { contarPendentes } from '../../lib/filaOffline'
 import OSExec from './OSExec'
+import TrocarSenha from '../TrocarSenha'
 
 // ============================================================
 // APP DE CAMPO DO TÉCNICO DE TI
@@ -50,6 +51,7 @@ function StatusBadge({ status }) {
 export default function TecnicoApp({ profile }) {
   const [osList,    setOsList]    = useState([])
   const [selOS,     setSelOS]     = useState(null)
+  const [verSenha,  setVerSenha]  = useState(false)
   const [loading,   setLoading]   = useState(true)
   const [pendentes, setPendentes] = useState(0)
   const [online,    setOnline]    = useState(navigator.onLine)
@@ -160,10 +162,24 @@ export default function TecnicoApp({ profile }) {
         }}>
           {profile.initials || '??'}
         </span>
-        <button onClick={signOut} style={{ background:'none', border:'none', cursor:'pointer', fontSize:16, padding:4 }}>🚪</button>
+        <button onClick={() => { setSelOS(null); setVerSenha(true) }} title="Trocar senha"
+          style={{ background:'none', border:'none', cursor:'pointer', fontSize:16, padding:4 }}>🔑</button>
+        <button onClick={signOut} title="Sair"
+          style={{ background:'none', border:'none', cursor:'pointer', fontSize:16, padding:4 }}>🚪</button>
       </div>
     </div>
   )
+
+  if (verSenha) {
+    return (
+      <div style={{ maxWidth:520, margin:'0 auto' }}>
+        {Cabecalho}
+        <div style={{ padding:'1rem' }}>
+          <TrocarSenha profile={profile} onVoltar={() => setVerSenha(false)} />
+        </div>
+      </div>
+    )
+  }
 
   if (selOS) {
     return (
