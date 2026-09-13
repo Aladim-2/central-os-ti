@@ -293,9 +293,25 @@ export default function NotificacaoConfig({ profile }) {
         {log.length === 0 ? (
           <div style={{ padding:'20px 16px', textAlign:'center' }}>
             <p style={{ fontSize:13, color:'#888780' }}>Nenhum envio registrado.</p>
-            <p style={{ fontSize:11, color:'#888780', marginTop:4 }}>
-              O envio depende do endpoint <code>/webhook/nova-os-ti</code>, que ainda não existe.
-              Ligar os avisos antes disso não envia nada.
+            <p style={{ fontSize:11, color:'#888780', marginTop:4, lineHeight:1.5 }}>
+              {/* O endpoint e os dois gatilhos entraram em 13/09/2026. O texto
+                  anterior dizia que o endpoint "ainda não existe" e ficou
+                  mentindo por algumas horas — daí ser condicional agora, em vez
+                  de uma frase fixa que envelhece sem avisar. */}
+              {cfg.enabled ? (
+                <>
+                  Nenhum chamado novo desde que os avisos foram ligados.
+                  Todo evento aparece aqui — inclusive os que <strong>não</strong> geram envio.
+                </>
+              ) : (
+                <>
+                  O caminho está no ar: endpoint <code>/webhook/nova-os-ti</code> e os
+                  dois gatilhos, desde 13/09/2026. Mas os avisos estão{' '}
+                  <strong>desligados</strong> acima, e por isso nada é enviado.
+                  Ao ligar, todo chamado novo passa a aparecer aqui — inclusive os
+                  que não geram envio.
+                </>
+              )}
             </p>
           </div>
         ) : (
