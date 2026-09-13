@@ -82,12 +82,23 @@ export async function signOut() {
 
 // ── Troca de senha pelo próprio usuário ──────────────────────
 //
-// ATENÇÃO AO PORQUÊ DA RE-AUTENTICAÇÃO:
+// ╔══════════════════════════════════════════════════════════╗
+// ║  NÃO REMOVA O signInWithPassword ABAIXO.                  ║
+// ║  Ele é a ÚNICA coisa que faz o campo "senha atual" valer. ║
+// ╚══════════════════════════════════════════════════════════╝
+//
 // supabase.auth.updateUser({ password }) exige APENAS uma sessão
-// válida — não confere a senha antiga. Sem o passo abaixo, o campo
-// "senha atual" da tela seria decoração: qualquer coisa digitada
-// ali passaria, e quem pegasse um celular destravado trocaria a
-// senha sem saber a anterior.
+// válida — não confere a senha antiga. E a opção do projeto
+// "Require current password when updating" está DESLIGADA
+// (conferida no painel em 2026-09-13), então o servidor também
+// não exige nada.
+//
+// Ou seja: não há rede de proteção nenhuma atrás desta função.
+// Se alguém apagar a re-autenticação por parecer redundante, o
+// campo "senha atual" vira decoração no mesmo commit — qualquer
+// coisa digitada ali passa, e quem pegar um celular destravado
+// troca a senha sem saber a anterior. Nada no servidor vai
+// recusar, e nenhum teste existente vai quebrar.
 //
 // signInWithPassword com o mesmo usuário é o único jeito de provar
 // que a pessoa sabe a senha atual sem Edge Function nem RLS nova.

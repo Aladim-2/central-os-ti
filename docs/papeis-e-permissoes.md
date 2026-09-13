@@ -17,6 +17,103 @@ souber o endereço chega lá, e a chave publishable viaja no bundle.
 
 ---
 
+# 🔴🔴 ABERTO AGORA — qualquer pessoa na internet vira gestor em uma chamada
+
+**Não é escalada a partir de uma conta existente. Não precisa de conta
+nenhuma.** Confirmado por execução em 2026-09-13, em transação revertida.
+
+## A cadeia
+
+**1.** *Allow new users to sign up* está **LIGADO** no projeto. Qualquer um
+chama `signUp` com a chave publishable, que viaja no bundle por construção.
+
+**2.** O trigger `on_auth_user_created` dispara `public.handle_new_user()`, que
+é `SECURITY DEFINER` — ignora RLS — e faz:
+
+```sql
+insert into public.profiles (id, name, role, initials)
+values (
+  new.id,
+  coalesce(new.raw_user_meta_data->>'name', split_part(new.email,'@',1)),
+  coalesce(new.raw_user_meta_data->>'role', 'eletricista'),   -- ← o papel vem do cliente
+  ...
+);
+```
+
+**3.** `raw_user_meta_data` é exatamente o que `options.data` do `signUp`
+preenche. **O cliente escolhe o próprio papel:**
+
+```js
+supabase.auth.signUp({
+  email, password,
+  options: { data: { role: 'gestor' } }
+})
+```
+
+**4.** O `CHECK` de `profiles.role` aceita `'gestor'` — é valor válido. O
+perfil nasce gestor.
+
+## O teste
+
+Simulado o insert que o GoTrue faz nesse cadastro, com
+`raw_user_meta_data = {"role":"gestor","name":"Invasor Teste"}`:
+
+```
+erro no insert: (nenhum)
+perfil criado com papel: gestor
+nome: Invasor Teste
+```
+
+Revertido. Estado conferido depois: 31 contas, 30 perfis, 2 gestores, zero
+resíduo.
+
+## Por que isto é pior que o furo da seção 1
+
+| | Seção 1 (corrigido) | Este |
+|---|---|---|
+| Precisa de conta existente | sim | **não** |
+| Precisa de senha de alguém | sim | **não** |
+| Barrado pela trigger de hoje | sim | **não** — `trg_trava_troca_de_papel` é `BEFORE UPDATE`, isto é `INSERT` |
+| Resultado | gestor | gestor nos **dois** sistemas |
+
+A trava que apliquei hoje não alcança este caminho, e nenhuma das policies
+alcança: `handle_new_user` é `SECURITY DEFINER` e passa por cima de RLS.
+
+## O que fecha
+
+Três medidas, e as duas primeiras são independentes:
+
+1. **Desligar o auto-cadastro** no painel. As contas aqui são criadas pela
+   administração, nunca por auto-cadastro — a opção está ligada sem uso.
+2. **Parar de confiar no `raw_user_meta_data` para o papel.** O
+   `coalesce(... ->> 'role', 'eletricista')` precisa virar `'eletricista'`
+   fixo, ou o papel sair do trigger e só ser atribuído pela Edge Function.
+3. **Estreitar a policy `Perfil inserção`**, que hoje é
+   `WITH CHECK (auth.uid() IS NOT NULL)` — qualquer autenticado insere perfil.
+
+**Nada disso foi feito**: a instrução foi registrar, não mexer. Mas a
+gravidade é diferente da que foi descrita ao registrar — "porta aberta a
+fechar" descreve o item 1; os itens 2 e 3 são a porta estar aberta **e a
+fechadura entregar a chave a quem bate**.
+
+---
+
+# 🔴 PENDÊNCIA ATIVA — `Require current password when updating` está desligado
+
+Conferido no painel em 2026-09-13. `supabase.auth.updateUser({ password })`
+não exige a senha antiga, **e o servidor também não**.
+
+A re-autenticação por `signInWithPassword` dentro de `trocarSenha()`
+(`src/supabase.js`) é a **única** coisa que faz o campo "senha atual" da tela
+valer alguma coisa. Não há rede de proteção atrás dela: se alguém remover
+aquele passo por parecer redundante, o campo vira decoração no mesmo commit,
+nenhum teste quebra e nenhum erro aparece.
+
+O helper carrega um aviso em caixa por causa disso. Ligar a opção no painel
+daria a rede que hoje não existe.
+
+---
+
 # 🔴 PENDÊNCIA ATIVA — a `media-delete` anula o Bloco 5 pelo endpoint direto
 
 **Isto não é nota de rodapé. É um buraco aberto agora, e a única coisa que o
