@@ -7,6 +7,7 @@ import CreateOS from './CreateOS'
 import OSDetail from './OSDetail'
 import StockManager from './StockManager'
 import NotificacaoConfig from './NotificacaoConfig'
+import Relatorios from './Relatorios'
 import Versao from '../../Versao'
 import TrocarSenha from '../TrocarSenha'
 
@@ -258,6 +259,10 @@ export default function ManagerApp({ profile }) {
     o.prazo_sla && new Date(o.prazo_sla) < new Date()
   ).length
 
+  // Relatório com texto redigido esperando a assinatura. Sai do mesmo osList
+  // que a tela usa — não há segunda consulta para o contador divergir dela.
+  const aguardandoValidacao = osList.filter(o => o.relatorio_status === 'aguardando_validacao').length
+
   const papelRotulo = profile.role === 'central_ti' ? 'Central de TI' : 'Gestor'
 
   return (
@@ -340,6 +345,21 @@ export default function ManagerApp({ profile }) {
           <button className={`sidebar-link${view === 'escolas' ? ' active' : ''}`} onClick={() => setView('escolas')}>🏫 Escolas</button>
           <button className={`sidebar-link${view === 'equipe' ? ' active' : ''}`} onClick={() => setView('equipe')}>👥 Equipe</button>
           <button className={`sidebar-link${view === 'estoque' ? ' active' : ''}`} onClick={() => setView('estoque')}>📦 Estoque</button>
+          <button
+            className={`sidebar-link${view === 'relatorios' ? ' active' : ''}`}
+            onClick={() => setView('relatorios')}
+          >
+            <span>📄 Relatórios</span>
+            {aguardandoValidacao > 0 && (
+              <span style={{
+                marginLeft: 'auto', background: '#FAC775', color: '#633806',
+                borderRadius: 10, fontSize: 10, fontWeight: 700,
+                padding: '1px 6px', minWidth: 18, textAlign: 'center'
+              }}>
+                {aguardandoValidacao}
+              </span>
+            )}
+          </button>
           <button className={`sidebar-link${view === 'notificacoes' ? ' active' : ''}`} onClick={() => setView('notificacoes')}>🔔 Notificações</button>
         </div>
 
@@ -406,6 +426,15 @@ export default function ManagerApp({ profile }) {
             porque toda saída de material se amarra a uma OS. */}
         {!loading && view === 'estoque' && (
           <StockManager profile={profile} osList={osList} onReload={loadData} />
+        )}
+
+        {/* Relatórios lê o mesmo osList do fluxo de OS — fetchOS já traz
+            location, tecnico, tipo e photos, então não há consulta nova. */}
+        {!loading && view === 'relatorios' && (
+          <Relatorios
+            osList={osList} tecnicos={tecnicos} profile={profile}
+            onUpdated={refreshOS}
+          />
         )}
 
         {!loading && view === 'notificacoes' && (

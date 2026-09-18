@@ -47,6 +47,20 @@ export default defineConfig({
         ]
       },
       workbox: {
+        // O chunk do gerador de PDF (pdfmake + as seis faces da IBM Plex,
+        // ~1,2 MB) fica FORA do precache. Sem isto o import() dinamico nao
+        // resolve nada: o workbox precacheia todo asset do build, e o tecnico
+        // no celular baixaria, a cada versao, a fonte que a tela dele nunca
+        // usa. Quem emite PDF e o gestor, no desktop, e ai o chunk desce por
+        // rede no clique. Medido em 18/09/2026, na lista de assets do
+        // dist/sw.js: o precache cai de 9 entradas / 1738,99 KiB para 8
+        // entradas / 554,76 KiB, e 'pdfRelatorio' nao aparece mais no sw.js.
+        // O curinga e por causa do hash que o Vite poe no nome. Hoje o vfsPlex
+        // sai DENTRO deste chunk (conferido: a face IBMPlexMono-SemiBold.ttf
+        // so aparece nele). Se um dia outro modulo importar o vfsPlex, o
+        // Rollup o promove a chunk proprio e ele volta ao precache — a
+        // conferencia e reler a lista do dist/sw.js depois do build.
+        globIgnores: ['**/assets/pdfRelatorio-*.js'],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/.*\.supabase\.co\/.*/i,

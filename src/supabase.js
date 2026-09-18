@@ -245,11 +245,11 @@ export async function fetchOS(userId, role) {
     .select(`
       *,
       location:locations(*),
-      tecnico:profiles!tecnico_id(*),
+      tecnico:profiles!ti_orders_tecnico_id_fkey(*),
       tipo:ti_tipos_demanda(*),
       ativo:ti_ativos(*),
       history:ti_os_history(*),
-      photos:ti_os_photos(*)
+      photos:ti_os_photos!ti_os_photos_os_id_fkey(*)
     `)
     .order('created_at', { ascending: false })
 
@@ -269,11 +269,11 @@ export async function fetchOSPorNumero(numero) {
     .select(`
       *,
       location:locations(*),
-      tecnico:profiles!tecnico_id(*),
+      tecnico:profiles!ti_orders_tecnico_id_fkey(*),
       tipo:ti_tipos_demanda(*),
       ativo:ti_ativos(*),
       history:ti_os_history(*),
-      photos:ti_os_photos(*)
+      photos:ti_os_photos!ti_os_photos_os_id_fkey(*)
     `)
     .eq('numero', numero)
     .single()
@@ -290,7 +290,7 @@ export async function createOS(payload) {
     .select(`
       *,
       location:locations(*),
-      tecnico:profiles!tecnico_id(*),
+      tecnico:profiles!ti_orders_tecnico_id_fkey(*),
       tipo:ti_tipos_demanda(*)
     `)
     .single()
@@ -307,11 +307,11 @@ export async function updateOS(id, updates) {
     .select(`
       *,
       location:locations(*),
-      tecnico:profiles!tecnico_id(*),
+      tecnico:profiles!ti_orders_tecnico_id_fkey(*),
       tipo:ti_tipos_demanda(*),
       ativo:ti_ativos(*),
       history:ti_os_history(*),
-      photos:ti_os_photos(*)
+      photos:ti_os_photos!ti_os_photos_os_id_fkey(*)
     `)
     .single()
   if (error) throw error
@@ -490,7 +490,36 @@ export async function drenarFila(aoProgredir = () => {}) {
 
       if (!item.statusAplicado) {
         const updates = { status: item.para, ...(item.extra || {}) }
-        if (item.nota?.trim()) updates.observations = item.nota.trim()
+
+        // observations é gravado pela RPC ti_append_observacao, NÃO por
+        // `updates`: a função concatena de forma atômica — um único UPDATE
+        // referenciando a própria coluna, sem leitura prévia e sem janela em
+        // que o gestor possa ser sobrescrito — e é idempotente por LINHA
+        // EXATA. Deixar observations também em `updates` gravaria a coluna
+        // duas vezes na mesma drenagem.
+        //
+        // ORDEM: a RPC grava ANTES do updateOS dos demais campos. Se o
+        // updateOS falhar depois, a nota já está no banco e a retentativa
+        // volta aqui — passando pela guarda de linha exata sem duplicar. É a
+        // idempotência da função que torna esta ordem segura; sem ela,
+        // gravar antes seria bug, não escolha.
+        const nota = item.nota?.trim()
+        if (nota) {
+          const { data: obsFinal, error: rpcErr } = await supabase.rpc(
+            'ti_append_observacao',
+            { p_os_id: item.osId, p_nota: nota }
+          )
+          if (rpcErr) throw rpcErr
+          // null significa que o UPDATE não afetou linha nenhuma — RLS
+          // recusando ou os_id inexistente. Com nota válida o retorno é no
+          // mínimo a própria nota, então null é recusa, não resultado. Sem
+          // este throw o item sai da fila e a nota do técnico desaparece em
+          // silêncio.
+          if (obsFinal === null) {
+            throw new Error(`ti_append_observacao não gravou nada na OS ${item.osId}`)
+          }
+        }
+
         await updateOS(item.osId, updates)
         await addHistory(item.osId, item.para, item.byName, item.byId)
         item.statusAplicado = true
@@ -1181,4 +1210,141 @@ export function subscribeOS(userId, role, callback) {
     .subscribe()
 
   return () => supabase.removeChannel(channel)
+}
+
+// ── Relatórios ───────────────────────────────────────────────
+// O relatório é 1:1 com a OS e mora em colunas de ti_orders — mesmo padrão
+// da Central OS Civil. Quem lista e quem abre já usa fetchOS e
+// fetchOSPorNumero, que trazem location, tecnico, tipo, history e photos:
+// nada aqui refaz consulta. Só o que é próprio do relatório.
+
+export const STATUS_RELATORIO = {
+  rascunho:             { nome: 'Rascunho',              cor: '#888780' },
+  aguardando_validacao: { nome: 'Aguardando validação',  cor: '#D97706' },
+  validado:             { nome: 'Validado',              cor: '#16A34A' },
+}
+
+// Ordem em que as figuras aparecem no documento. Cobre as SEIS etapas que o
+// CHECK de ti_os_photos.stage aceita — 'aguardando' e 'remoto' faltavam aqui,
+// e foto dessas etapas caía no fim da fila por acidente (índice -1), com a
+// legenda saindo de um fallback de maiúscula em vez de rótulo de peça.
+// Conclusão fica por último de propósito: é dela que sai a foto de capa.
+export const ORDEM_ETAPA_FOTO = [
+  'vistoria', 'aguardando', 'material', 'execucao', 'remoto', 'conclusao',
+]
+
+// Rótulo de figura. Não reaproveita LABEL_STAGE_TECNICO de propósito: aquele
+// é instrução ao técnico em campo ("situação encontrada"); este é legenda de
+// peça documental.
+export const LABEL_ETAPA_FOTO = {
+  vistoria:   'Vistoria',
+  aguardando: 'Aguardando',
+  material:   'Material',
+  execucao:   'Execução',
+  remoto:     'Atendimento remoto',
+  conclusao:  'Conclusão',
+}
+
+export function ordenarFotosDoRelatorio(photos) {
+  return [...(photos || [])].sort((a, b) => {
+    const pa = ORDEM_ETAPA_FOTO.indexOf(a.stage)
+    const pb = ORDEM_ETAPA_FOTO.indexOf(b.stage)
+    if (pa !== pb) return (pa === -1 ? 99 : pa) - (pb === -1 ? 99 : pb)
+    return String(a.created_at || '').localeCompare(String(b.created_at || ''))
+  })
+}
+
+export function materiaisDoRelatorio(os) {
+  const bruto = Array.isArray(os?.materials_used) ? os.materials_used : []
+  return bruto.map(m => ({
+    item:       m?.item || m?.descricao || m?.description || '—',
+    quantidade: m?.quantidade ?? m?.qtd ?? m?.quantity ?? '—',
+    unidade:    m?.unidade || m?.unit || m?.un || 'un',
+  }))
+}
+
+// Payload canônico do relatório. É o que o hash carimba — conteúdo, não PDF.
+// Reconferir o hash prova que texto, materiais e fotos não mudaram desde o
+// aceite; o PDF pode ser regerado sem invalidar o registro.
+export function payloadRelatorio(os, justificativaSemFoto = null) {
+  const fotos = ordenarFotosDoRelatorio(os.photos)
+  return {
+    numero:     os.numero,
+    escola:     os.location?.name || null,
+    setor:      os.setor || null,
+    tecnico_id: os.tecnico_id || null,
+    abertura:   os.created_at || null,
+    conclusao:  os.concluida_em || null,
+    problema:   os.relatorio_problema || '',
+    servico:    os.relatorio_servico || '',
+    materiais:  materiaisDoRelatorio(os).map(m => [m.item, String(m.quantidade), m.unidade]),
+    // created_at da foto é a hora do UPLOAD, não da captura: a fila offline
+    // pode subir dias depois e comprimirImagem descarta o EXIF. O documento
+    // diz "recebida em" pelo mesmo motivo.
+    fotos:      fotos.map(f => [f.url, f.stage, f.created_at]),
+    justificativa_sem_foto: justificativaSemFoto,
+  }
+}
+
+export async function calcularHashRelatorio(os, justificativaSemFoto = null) {
+  const bytes  = new TextEncoder().encode(JSON.stringify(payloadRelatorio(os, justificativaSemFoto)))
+  const digest = await crypto.subtle.digest('SHA-256', bytes)
+  return Array.from(new Uint8Array(digest))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')
+    .slice(0, 12)
+}
+
+// Salva as seções 1 e 2 redigidas pelo gestor. Quando as duas ficam
+// preenchidas e o relatório ainda é rascunho, ele passa a aguardar
+// validação — é o estado "tem conteúdo, falta assinatura", e é o que o
+// contador da barra lateral mostra.
+export async function salvarTextoRelatorio(os, { problema, servico }) {
+  const updates = {
+    relatorio_problema: problema?.trim() || null,
+    relatorio_servico:  servico?.trim() || null,
+  }
+
+  const completo = Boolean(updates.relatorio_problema && updates.relatorio_servico)
+  if (completo && os.relatorio_status === 'rascunho') {
+    updates.relatorio_status    = 'aguardando_validacao'
+    updates.relatorio_emitido_em = new Date().toISOString()
+  }
+
+  return updateOS(os.id, updates)
+}
+
+// Validação. O .eq no status é trava de corrida, e o .select() é o que
+// revela se ela agiu: sem ele, um UPDATE que não alcançou linha nenhuma
+// volta com error nulo e a tela diria "validado" sem ter validado.
+export async function validarRelatorio(os, gestorId, justificativaSemFoto = null) {
+  const hash = await calcularHashRelatorio(os, justificativaSemFoto)
+
+  const { data, error } = await supabase
+    .from('ti_orders')
+    .update({
+      relatorio_status:                 'validado',
+      relatorio_hash:                   hash,
+      relatorio_payload:                payloadRelatorio(os, justificativaSemFoto),
+      relatorio_justificativa_sem_foto: justificativaSemFoto,
+      relatorio_validado_por:           gestorId,
+      relatorio_validado_em:            new Date().toISOString(),
+    })
+    .eq('id', os.id)
+    .eq('relatorio_status', 'aguardando_validacao')
+    .select(`
+      *,
+      location:locations(*),
+      tecnico:profiles!ti_orders_tecnico_id_fkey(*),
+      tipo:ti_tipos_demanda(*),
+      ativo:ti_ativos(*),
+      history:ti_os_history(*),
+      photos:ti_os_photos!ti_os_photos_os_id_fkey(*)
+    `)
+
+  if (error) throw error
+  if (!data || data.length === 0) {
+    throw new Error('Este relatório já não estava aguardando validação. Recarregue e confira o estado atual.')
+  }
+  return data[0]
 }
