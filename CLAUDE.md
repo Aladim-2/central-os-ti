@@ -294,5 +294,6 @@ funcionalidade. Ver `docs/app-tecnico.md` §7.
 `docs/app-tecnico.md` — app de campo, fila offline, dívida do STAGE
 `docs/falhas-silenciosas.md` — o padrão e os casos
 `docs/limpeza-pwa.md` — a limpeza única por pessoa, e os textos para enviar
+`docs/card-material-gestor.md` — o card de material do gestor: padrão da Elétrica a igualar
 
 Ler antes de mexer na área correspondente.
