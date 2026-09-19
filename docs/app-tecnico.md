@@ -323,6 +323,29 @@ por isso nunca fala com o servidor de mídia.
 **Conserto: trocar a variável de ambiente na Vercel e redeployar.** Não é
 mudança de código.
 
+### ✅ Conserto confirmado por medição, 19/09/2026
+
+Feito em 13/09 às 18h38 — data de edição da variável na Vercel, horas depois da
+investigação acima; o build de 18/09 publicou o valor. A confirmação repetiu a
+técnica do §4 — POST autenticado **sem arquivo**, que não grava nada em
+produção — usando o token **extraído do bundle em produção**, não o do `.env`:
+
+| requisição | resposta |
+|---|---|
+| token do bundle publicado | `{"erro":"arquivo ausente"}`, HTTP **400** |
+| sem token (controle) | `{"erro":"nao autorizado"}`, HTTP **401** |
+
+O 400 prova que a autenticação foi atravessada; o 401 do controle prova que a
+rota de fato autentica, e que o 400 não é um "passa tudo". Sem o controle, um
+400 sozinho não distinguiria "token aceito" de "rota que não confere token".
+
+A medição do dia 13, que achou 64 caracteres no bundle, estava certa: era o
+bundle **antes** da troca. Hoje bundle e `.env` batem em 34.
+
+**O que isto NÃO prova:** que um upload com arquivo de verdade grava em
+`ti_os_photos`. A pergunta era sobre a autenticação, e é só ela que está
+respondida. O resto é o teste de fumaça.
+
 ### Duas lições
 
 **O suspeito mais provável era o errado.** A pendência do `client_uuid` estava

@@ -159,9 +159,18 @@ Eliminados por medição, não por descarte: token ausente no build; `midia-api`
 rejeitando `client_uuid` no multipart; disciplina `ti` não liberada. Ver
 `docs/app-tecnico.md` §4 e §9.
 
-**Conserto:** trocar a variável na Vercel e redeployar. Não é código. **Ordem:**
-consertar → Ruan abre o app e pega o bundle novo → fila drena → conferir
-`ti_os_photos` e `ti_os_history` → só então a OS pode ser excluída.
+**✅ CONSERTADO — medido em 19/09/2026.** A variável foi trocada na Vercel em
+13/09 às 18h38 e o build de 18/09 publicou o valor novo. Conferido por medição,
+não por dedução: um POST autenticado com o token **extraído do bundle em
+produção**, sem arquivo, volta `{"erro":"arquivo ausente"}` HTTP **400** — o
+parser reclamando do que falta de verdade, ou seja, passou da autenticação. O
+controle sem token volta **401**. Bundle e `.env` local hoje batem: 34
+caracteres.
+
+**Falta a confirmação de ponta a ponta**, que só o teste de fumaça dá: fila
+drena → conferir `ti_os_photos` e `ti_os_history` → só então a OS pode ser
+excluída. O que estava provado era o 401; o que está provado agora é que ele
+não acontece mais.
 
 **E fica aberto o que produziu isto:** nada compara as duas cópias do token
 (`.env` local e variável da Vercel). Divergiram sem sinal nenhum e vão divergir
