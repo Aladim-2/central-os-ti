@@ -47,6 +47,19 @@ const BORDA     = '#e5e3dc'
 
 const MSG_OFFLINE = 'Salvo no aparelho — envia quando a internet voltar.'
 
+// Duas fotos no mínimo, quatro no máximo, por etapa de evidência.
+//
+// Duas porque uma foto sozinha mostra um ângulo e nada mais: numa contestação,
+// "a foto não prova que era esse equipamento" é a primeira coisa que se ouve.
+// Quatro porque o teto existe para a fila offline continuar viável — cada foto
+// é um blob no aparelho esperando rede de escola.
+//
+// Nada disso precisou de banco: a única restrição UNIQUE de ti_os_photos é por
+// client_uuid, então várias linhas com o mesmo os_id e o mesmo stage sempre
+// couberam.
+const MIN_FOTOS = 2
+const MAX_FOTOS = 4
+
 // Vibração curta como confirmação tátil de etapa registrada. Guarda dupla:
 // `?.` cobre o navegador que não implementa, o try/catch cobre o que implementa
 // e recusa (iOS Safari, e qualquer contexto sem gesto do usuário). Falhar em
@@ -245,27 +258,92 @@ function CartaoEscola({ loc, setor }) {
   )
 }
 
-function BotaoCamera({ stage, temFoto, onFoto, disabled, obrigatoria = true }) {
+// Um botão principal por tela. Enquanto envia, ele conta que está enviando —
+// antes o técnico tocava e nada mudava na tela por segundos.
+// Miniatura da foto ainda não enviada, com remover.
+//
+// O revoke no cleanup não é zelo: sem ele cada foto tirada segura o blob na
+// memória do navegador até a aba fechar. Em campo são quatro por etapa, várias
+// etapas, várias OS na mesma sessão — e o aparelho do técnico não é o nosso.
+function Miniatura({ arquivo, onRemover, disabled }) {
+  const [url, setUrl] = useState(null)
+
+  useEffect(() => {
+    const u = URL.createObjectURL(arquivo)
+    setUrl(u)
+    return () => URL.revokeObjectURL(u)
+  }, [arquivo])
+
   return (
-    <button onClick={() => pedirFoto(f => onFoto(stage, f))} disabled={disabled}
-      style={{
-        width: '100%', padding: '14px', borderRadius: 10, minHeight: 48,
-        cursor: disabled ? 'wait' : 'pointer',
-        border: temFoto ? `1px solid ${VERDE}` : `1px dashed ${AZUL}`,
-        background: temFoto ? '#D1FAE5' : '#F5F8FF',
-        color: temFoto ? VERDE_T : ESCURO,
-        fontSize: 14, fontWeight: 600, textAlign: 'left'
-      }}>
-      {temFoto ? '✓ ' : '📷 '}
-      {temFoto ? 'Foto registrada — ' : 'Tirar foto — '}
-      {LABEL_STAGE_TECNICO[stage] || stage}
-      {!temFoto && obrigatoria && <span style={{ color: '#DC2626' }}> *</span>}
-    </button>
+    <div style={{ position:'relative', width:88, height:88, flexShrink:0 }}>
+      {url && (
+        <img src={url} alt="" style={{
+          width:88, height:88, objectFit:'cover', borderRadius:10,
+          border:`0.5px solid ${BORDA}`, display:'block'
+        }} />
+      )}
+      {/* 40px, abaixo dos 44 que o resto da tela respeita. É o único lugar em
+          que abro exceção: o alvo fica sobre a própria miniatura, sem vizinho
+          a menos de 8px, e um toque errado custa tirar a foto de novo — não
+          perde registro nenhum. */}
+      <button onClick={onRemover} disabled={disabled} aria-label="Remover esta foto"
+        style={{
+          position:'absolute', top:-8, right:-8, width:40, height:40,
+          borderRadius:'50%', border:'2px solid #fff', background:'#991B1B',
+          color:'#fff', fontSize:15, lineHeight:1, padding:0,
+          cursor: disabled ? 'not-allowed' : 'pointer'
+        }}>✕</button>
+    </div>
   )
 }
 
-// Um botão principal por tela. Enquanto envia, ele conta que está enviando —
-// antes o técnico tocava e nada mudava na tela por segundos.
+// Bloco de captura de uma etapa: miniaturas, "+ foto" até o teto, e o contador.
+//
+// O contador é o que faz a regra parar de ser surpresa. Antes o botão só ficava
+// apagado e o técnico descobria o motivo tocando; agora "1 de 4 · falta 1"
+// está na tela antes de ele tentar.
+function BlocoFotos({ stage, arquivos, onAdicionar, onRemover, disabled, minimo = 0 }) {
+  const n     = arquivos.length
+  const falta = Math.max(0, minimo - n)
+  const cheio = n >= MAX_FOTOS
+
+  return (
+    <div>
+      {n > 0 && (
+        <div style={{ display:'flex', gap:14, flexWrap:'wrap', marginBottom:10, paddingTop:8, paddingRight:8 }}>
+          {arquivos.map((a, i) => (
+            <Miniatura key={i} arquivo={a} disabled={disabled}
+              onRemover={() => onRemover(stage, i)} />
+          ))}
+        </div>
+      )}
+
+      {!cheio && (
+        <button onClick={() => pedirFoto(f => onAdicionar(stage, f))} disabled={disabled}
+          style={{
+            width:'100%', padding:'14px', borderRadius:10, minHeight:48,
+            cursor: disabled ? 'wait' : 'pointer',
+            border: n > 0 ? `1px solid ${VERDE}` : `1px dashed ${AZUL}`,
+            background: n > 0 ? '#F0FDF4' : '#F5F8FF',
+            color: n > 0 ? VERDE_T : ESCURO,
+            fontSize:14, fontWeight:600, textAlign:'left'
+          }}>
+          {n === 0
+            ? `📷 Tirar foto — ${LABEL_STAGE_TECNICO[stage] || stage}`
+            : '＋ foto'}
+        </button>
+      )}
+
+      <p style={{ fontSize:11, marginTop:6, color: falta > 0 ? '#991B1B' : CINZA }}>
+        {n} de {MAX_FOTOS}
+        {falta > 0 && ` · falta${falta > 1 ? 'm' : ''} ${falta} (mínimo ${minimo})`}
+        {falta === 0 && minimo > 0 && ' · mínimo atendido'}
+        {cheio && ' · limite'}
+      </p>
+    </div>
+  )
+}
+
 function Principal({ onClick, ativo, cor = AZUL, enviando, children }) {
   const liberado = ativo && !enviando
   return (
@@ -379,7 +457,9 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
   const [materiais,   setMateriais]   = useState(() =>
     Array.isArray(os.materials_needed) ? os.materials_needed.map(normalizarMaterial) : []
   )
+  // { stage: File[] } — era { stage: File }. Cada etapa passa a juntar de 2 a 4.
   const [fotosVist,   setFotosVist]   = useState({})
+  const [fotosMat,    setFotosMat]    = useState([])
 
   // Uma observação só, atravessando as telas. São momentos diferentes da mesma
   // visita, e o que o técnico escreveu em execução continua valendo quando ele
@@ -392,6 +472,10 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
   const [servico,        setServico]        = useState('')
   const [usados,         setUsados]         = useState([])
   const [fotosConc,      setFotosConc]      = useState({})
+  // client_uuid das fotos livres de execução enviadas nesta sessão. Guardar o
+  // id, e não um contador, é o que permite unir com os.photos sem contar duas
+  // vezes quando a lista é recarregada e a foto recém-enviada aparece lá.
+  const [execEnviadas,   setExecEnviadas]   = useState([])
   const [justSemFoto,    setJustSemFoto]    = useState('')
   const [abrirConclusao, setAbrirConclusao] = useState(false)
 
@@ -407,7 +491,7 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
     ...fotosExigidas('vistoria', 'aguardando'),
     ...fotosExigidas('vistoria', 'execucao'),
   ])], [])
-  const faltandoVist     = exigidasVistoria.filter(s => !fotosVist[s])
+  const faltandoVist     = exigidasVistoria.filter(s => (fotosVist[s] || []).length < MIN_FOTOS)
   const materiaisValidos = materiais.filter(m => m.item.trim())
   const vistoriaPronta   = faltandoVist.length === 0 && diagnostico.trim().length > 0
 
@@ -441,6 +525,23 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
   )
   const exigeFotoMaterial = temEntregue && !jaTemFotoMaterial
 
+  // Fotos livres de execução já existentes na OS, unidas às enviadas nesta
+  // sessão. A união é por client_uuid porque a foto recém-enviada aparece em
+  // os.photos assim que a lista recarrega — somar os dois números contaria ela
+  // duas vezes e o teto cairia pela metade.
+  const totalFotosExec = useMemo(() => {
+    const jaNaOS = new Set(
+      (Array.isArray(os.photos) ? os.photos : [])
+        .filter(f => f?.stage === 'execucao')
+        .map(f => f.client_uuid)
+        .filter(Boolean)
+    )
+    const semUuid = (Array.isArray(os.photos) ? os.photos : [])
+      .filter(f => f?.stage === 'execucao' && !f.client_uuid).length
+    const novas = execEnviadas.filter(u => !jaNaOS.has(u)).length
+    return jaNaOS.size + semUuid + novas
+  }, [os.photos, execEnviadas])
+
   const podeConcluir     = !encerrada && ['vistoria', 'aguardando', 'execucao'].includes(os.status)
   const mostrarConclusao = podeConcluir && abrirConclusao
 
@@ -455,8 +556,18 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
   // de vistoria, quando se conclui direto da avaliação; a de material, quando
   // houve entrega — continuam obrigatórias: a justificativa é sobre não haver o
   // que fotografar no fim do serviço, não sobre as etapas anteriores.
-  const faltandoConcObrigatorias = exigidasConclusao.filter(s => s !== 'conclusao' && !fotosConc[s])
-  const semFotoConclusao = exigidasConclusao.includes('conclusao') && !fotosConc['conclusao']
+  const faltandoConcObrigatorias = exigidasConclusao
+    .filter(s => s !== 'conclusao' && (fotosConc[s] || []).length < MIN_FOTOS)
+
+  // Três estados para a foto de conclusão, e não dois:
+  //  · nenhuma  → a justificativa entra no lugar dela;
+  //  · 1 só     → RECUSA. A justificativa diz "Conclusão sem foto", e com uma
+  //               foto anexada isso é falso. Ou chega ao mínimo, ou remove;
+  //  · 2 a 4    → pronto, e a justificativa some da tela.
+  const nFotosConclusao  = (fotosConc['conclusao'] || []).length
+  const exigeConclusao   = exigidasConclusao.includes('conclusao')
+  const semFotoConclusao = exigeConclusao && nFotosConclusao === 0
+  const conclusaoParcial = exigeConclusao && nFotosConclusao > 0 && nFotosConclusao < MIN_FOTOS
   const usadosValidos    = usados.filter(m => m.item.trim())
 
   // Mesmo piso que o gestor usa para a justificativa dele em RelatorioFolha.
@@ -465,6 +576,7 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
   const justOk = !semFotoConclusao || justSemFoto.trim().length >= JUST_MINIMA
   const conclusaoPronta =
     faltandoConcObrigatorias.length === 0 &&
+    !conclusaoParcial &&
     justOk &&
     problema.trim().length > 0 &&
     servico.trim().length > 0
@@ -542,8 +654,33 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
 
   // ── Avaliação técnica ──────────────────────────────────────
 
-  function receberFotoVist(stage, arquivo) {
-    setFotosVist(p => ({ ...p, [stage]: arquivo }))
+  // Mensagem de recusa que diz o número e a etapa, não "falta foto".
+  function msgFaltamFotos(stages, mapa) {
+    const partes = stages.map(st => {
+      const n = Array.isArray(mapa) ? mapa.length : (mapa[st] || []).length
+      return `"${LABEL_STAGE_TECNICO[st] || st}" (você tem ${n} de ${MAX_FOTOS})`
+    })
+    return `Faltam fotos: tire pelo menos ${MIN_FOTOS} de ${partes.join(' e de ')}.`
+  }
+
+  function adicionarFotoVist(stage, arquivo) {
+    setFotosVist(p => {
+      const atual = p[stage] || []
+      if (atual.length >= MAX_FOTOS) return p
+      return { ...p, [stage]: [...atual, arquivo] }
+    })
+  }
+
+  function removerFotoVist(stage, i) {
+    setFotosVist(p => ({ ...p, [stage]: (p[stage] || []).filter((_, j) => j !== i) }))
+  }
+
+  function adicionarFotoMat(_stage, arquivo) {
+    setFotosMat(p => p.length >= MAX_FOTOS ? p : [...p, arquivo])
+  }
+
+  function removerFotoMat(_stage, i) {
+    setFotosMat(p => p.filter((_, j) => j !== i))
   }
 
   function setMaterial(i, campo, valor) {
@@ -569,11 +706,7 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
     const diag = diagnostico.trim()
 
     if (faltandoVist.length > 0) {
-      mostrarErro(
-        'Falta a evidência: ' +
-        faltandoVist.map(s => LABEL_STAGE_TECNICO[s] || s).join(' e ') +
-        '. A foto é obrigatória.'
-      )
+      mostrarErro(msgFaltamFotos(faltandoVist, fotosVist))
       return
     }
 
@@ -599,7 +732,9 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
       await enfileirarTransicao({
         osId: os.id, osNumero: os.numero,
         de: os.status, para: 'aguardando',
-        fotos: exigidasVistoria.map(stage => ({ stage, arquivo: fotosVist[stage] })),
+        fotos: exigidasVistoria.flatMap(stage =>
+          (fotosVist[stage] || []).map(arquivo => ({ stage, arquivo }))
+        ),
         nota: observacao.trim() || null,
         extra,
         byName: profile.name, byId: profile.id
@@ -627,11 +762,7 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
     const diag = diagnostico.trim()
 
     if (faltandoVist.length > 0) {
-      mostrarErro(
-        'Falta a evidência: ' +
-        faltandoVist.map(s => LABEL_STAGE_TECNICO[s] || s).join(' e ') +
-        '. A foto é obrigatória.'
-      )
+      mostrarErro(msgFaltamFotos(faltandoVist, fotosVist))
       return
     }
     if (!diag) {
@@ -654,7 +785,9 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
       await enfileirarTransicao({
         osId: os.id, osNumero: os.numero,
         de: os.status, para: 'execucao',
-        fotos: exigidasVistoria.map(stage => ({ stage, arquivo: fotosVist[stage] })),
+        fotos: exigidasVistoria.flatMap(stage =>
+          (fotosVist[stage] || []).map(arquivo => ({ stage, arquivo }))
+        ),
         nota: observacao.trim() || null,
         extra,
         byName: profile.name, byId: profile.id
@@ -671,20 +804,32 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
   }
 
   // ── aguardando → execucao ──────────────────────────────────
-  // Um toque, uma foto, e a tela anda sozinha. O técnico confirma que RECEBEU;
-  // que isso significa "em execução" é problema do banco, não dele.
-  async function confirmarRecebimento(arquivo) {
+  //
+  // Deixou de ser um toque só: o mínimo de duas fotos vale também para o
+  // material recebido, e comprovante de entrega é justamente onde uma foto
+  // sozinha não basta — uma caixa fechada não mostra o que tem dentro.
+  //
+  // O técnico ainda não escolhe status: ele confirma que RECEBEU, e a tela
+  // anda. O que mudou é quantas fotos isso custa.
+  async function confirmarRecebimento() {
     if (os.status !== 'aguardando') return
+
+    if (fotosMat.length < MIN_FOTOS) {
+      mostrarErro(msgFaltamFotos([stageRecebimento], fotosMat))
+      return
+    }
+
     setSalvando(true)
     try {
       await enfileirarTransicao({
         osId: os.id, osNumero: os.numero,
         de: 'aguardando', para: 'execucao',
-        fotos: [{ stage: stageRecebimento, arquivo }],
+        fotos: fotosMat.map(arquivo => ({ stage: stageRecebimento, arquivo })),
         nota: observacao.trim() || null,
         byName: profile.name, byId: profile.id
       })
       onAplicado({ ...os, status: 'execucao' })
+      setFotosMat([])
       setObservacao('')
       registrado('Material recebido. Pode começar.')
       await sincronizar()
@@ -696,11 +841,16 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
   // Única das quatro que não tem momento único, então não porta transição
   // nenhuma. Sobe direto quando há rede.
   async function fotoLivreExecucao(_stage, arquivo) {
+    if (totalFotosExec >= MAX_FOTOS) {
+      mostrarErro(`Limite de ${MAX_FOTOS} fotos de andamento nesta OS.`)
+      return
+    }
     setSalvando(true)
     try {
       const uuid = novoUuid()
       await uploadPhoto(os.id, 'execucao', arquivo, uuid)
       await addHistory(os.id, os.status, profile.name, profile.id)
+      setExecEnviadas(p => [...p, uuid])
       vibrar()
       mostrarAviso('Foto do andamento registrada.')
     } catch (e) {
@@ -710,8 +860,16 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
 
   // ── Conclusão ──────────────────────────────────────────────
 
-  function receberFotoConc(stage, arquivo) {
-    setFotosConc(p => ({ ...p, [stage]: arquivo }))
+  function adicionarFotoConc(stage, arquivo) {
+    setFotosConc(p => {
+      const atual = p[stage] || []
+      if (atual.length >= MAX_FOTOS) return p
+      return { ...p, [stage]: [...atual, arquivo] }
+    })
+  }
+
+  function removerFotoConc(stage, i) {
+    setFotosConc(p => ({ ...p, [stage]: (p[stage] || []).filter((_, j) => j !== i) }))
   }
 
   function setUsado(i, campo, valor) {
@@ -757,12 +915,20 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
 
     if (faltandoConcObrigatorias.length > 0) {
       mostrarErro(
-        'Falta a evidência: ' +
-        faltandoConcObrigatorias.map(s => LABEL_STAGE_TECNICO[s] || s).join(' e ') +
-        '. A foto é obrigatória.' +
+        msgFaltamFotos(faltandoConcObrigatorias, fotosConc) +
         (faltandoConcObrigatorias.includes('material')
           ? ' A central entregou material nesta OS, e a foto do material recebido é o comprovante.'
           : '')
+      )
+      return
+    }
+
+    // Uma foto só é pior que nenhuma: a justificativa que entraria no lugar diz
+    // "Conclusão sem foto", e com uma anexada isso vira registro falso.
+    if (conclusaoParcial) {
+      mostrarErro(
+        `Você tem ${nFotosConclusao} de ${MAX_FOTOS} do serviço concluído. ` +
+        `Tire pelo menos ${MIN_FOTOS}, ou remova essa e escreva o motivo de não haver foto.`
       )
       return
     }
@@ -960,11 +1126,13 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
             não existe salvar separado.
           </p>
 
-          <Secao titulo="1 · Foto da situação encontrada">
-            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+          <Secao titulo={`1 · Fotos da situação encontrada (mínimo ${MIN_FOTOS})`}
+            dica="Uma foto sozinha mostra um ângulo e nada mais. Duas já situam o equipamento.">
+            <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
               {exigidasVistoria.map(stage => (
-                <BotaoCamera key={stage} stage={stage} temFoto={!!fotosVist[stage]}
-                  onFoto={receberFotoVist} disabled={enviando} />
+                <BlocoFotos key={stage} stage={stage} arquivos={fotosVist[stage] || []}
+                  onAdicionar={adicionarFotoVist} onRemover={removerFotoVist}
+                  disabled={enviando} minimo={MIN_FOTOS} />
               ))}
             </div>
           </Secao>
@@ -1014,9 +1182,10 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
           {!vistoriaPronta && (
             <p style={{ fontSize:12, color:'#991B1B', marginBottom:10 }}>
               Falta {[
-                faltandoVist.length > 0
-                  ? 'a foto: ' + faltandoVist.map(s => LABEL_STAGE_TECNICO[s] || s).join(' e ')
-                  : null,
+                ...faltandoVist.map(st => {
+                  const n = (fotosVist[st] || []).length
+                  return `mais ${MIN_FOTOS - n} foto de "${LABEL_STAGE_TECNICO[st] || st}" (${n} de ${MAX_FOTOS})`
+                }),
                 diagnostico.trim() ? null : 'dizer o que você encontrou',
               ].filter(Boolean).join('; ')}.
             </p>
@@ -1116,13 +1285,27 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
                 ))}
               </div>
 
+              <p style={{ fontSize:13, fontWeight:700, color:ESCURO, marginBottom:2 }}>
+                Fotos do material recebido (mínimo {MIN_FOTOS})
+              </p>
+              <p style={{ fontSize:11, color:CINZA, marginBottom:8, lineHeight:1.5 }}>
+                É o comprovante da entrega. Caixa fechada não mostra o que tem dentro —
+                fotografe o material à vista.
+              </p>
+              <div style={{ marginBottom:14 }}>
+                <BlocoFotos stage={stageRecebimento} arquivos={fotosMat}
+                  onAdicionar={adicionarFotoMat} onRemover={removerFotoMat}
+                  disabled={enviando} minimo={MIN_FOTOS} />
+              </div>
+
               <CampoObservacao valor={observacao} onChange={setObservacao} disabled={enviando} />
 
-              <Principal onClick={() => pedirFoto(confirmarRecebimento)} ativo cor={VERDE} enviando={enviando}>
-                📷 Recebi o material
+              <Principal onClick={confirmarRecebimento} cor={VERDE} enviando={enviando}
+                ativo={fotosMat.length >= MIN_FOTOS}>
+                Recebi o material
               </Principal>
               <p style={{ fontSize:11, color:CINZA, marginTop:8, textAlign:'center', lineHeight:1.5 }}>
-                A câmera abre e, com a foto tirada, a tela segue sozinha.
+                Com as fotos tiradas, a tela segue sozinha.
               </p>
             </>
           )}
@@ -1145,10 +1328,33 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
             Em execução{fmtHora(os.execucao_em) ? ` desde ${fmtHora(os.execucao_em)}` : ''}.
           </p>
 
+          {/* Estas não passam pela fila: sobem na hora, então não há miniatura
+              pendente para mostrar nem o que remover. O contador vem de
+              os.photos unido ao que subiu nesta sessão. */}
           <Secao titulo="Fotos do andamento"
-            dica="Opcionais. Registram o trabalho sem mudar de etapa — sobem na hora.">
-            <BotaoCamera stage="execucao" temFoto={false} onFoto={fotoLivreExecucao}
-              disabled={enviando} obrigatoria={false} />
+            dica="Opcionais, sem mínimo. Registram o trabalho sem mudar de etapa — sobem na hora.">
+            {totalFotosExec < MAX_FOTOS ? (
+              <button onClick={() => pedirFoto(f => fotoLivreExecucao('execucao', f))} disabled={enviando}
+                style={{
+                  width:'100%', padding:'14px', borderRadius:10, minHeight:48,
+                  cursor: enviando ? 'wait' : 'pointer',
+                  border: totalFotosExec > 0 ? `1px solid ${VERDE}` : `1px dashed ${AZUL}`,
+                  background: totalFotosExec > 0 ? '#F0FDF4' : '#F5F8FF',
+                  color: totalFotosExec > 0 ? VERDE_T : ESCURO,
+                  fontSize:14, fontWeight:600, textAlign:'left'
+                }}>
+                {totalFotosExec === 0
+                  ? `📷 Tirar foto — ${LABEL_STAGE_TECNICO['execucao']}`
+                  : '＋ foto'}
+              </button>
+            ) : (
+              <p style={{ fontSize:12, color:CINZA, lineHeight:1.5 }}>
+                Limite de {MAX_FOTOS} fotos de andamento atingido nesta OS.
+              </p>
+            )}
+            <p style={{ fontSize:11, marginTop:6, color:CINZA }}>
+              {totalFotosExec} de {MAX_FOTOS}{totalFotosExec >= MAX_FOTOS && ' · limite'}
+            </p>
           </Secao>
 
           <CampoObservacao valor={observacao} onChange={setObservacao} disabled={enviando} />
@@ -1175,14 +1381,23 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
             </p>
           )}
 
-          <Secao titulo="1 · Evidência">
-            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+          <Secao titulo={`1 · Evidência (mínimo ${MIN_FOTOS} por etapa)`}>
+            <div style={{ display:'flex', flexDirection:'column', gap:18 }}>
               {exigidasConclusao.map(stage => (
-                <BotaoCamera key={stage} stage={stage} temFoto={!!fotosConc[stage]}
-                  onFoto={receberFotoConc} disabled={enviando}
-                  obrigatoria={stage !== 'conclusao'} />
+                <BlocoFotos key={stage} stage={stage} arquivos={fotosConc[stage] || []}
+                  onAdicionar={adicionarFotoConc} onRemover={removerFotoConc}
+                  disabled={enviando}
+                  minimo={stage === 'conclusao' && semFotoConclusao ? 0 : MIN_FOTOS} />
               ))}
             </div>
+
+            {conclusaoParcial && (
+              <p style={{ fontSize:11, color:'#991B1B', marginTop:8, lineHeight:1.5 }}>
+                Você tem {nFotosConclusao} de {MAX_FOTOS} do serviço concluído. Tire pelo menos{' '}
+                {MIN_FOTOS}, ou remova essa e escreva o motivo de não haver foto — uma foto
+                só com a justificativa "sem foto" seria registro falso.
+              </p>
+            )}
 
             {semFotoConclusao && (
               <div style={{ background:LARANJA_F, border:'0.5px solid #FCD34D', borderRadius:8, padding:'10px 12px', marginTop:8 }}>
@@ -1254,8 +1469,12 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
           {!conclusaoPronta && (
             <p style={{ fontSize:12, color:'#991B1B', marginBottom:10 }}>
               Falta {[
-                faltandoConcObrigatorias.length > 0
-                  ? 'a foto: ' + faltandoConcObrigatorias.map(s => LABEL_STAGE_TECNICO[s] || s).join(' e ')
+                ...faltandoConcObrigatorias.map(st => {
+                  const n = (fotosConc[st] || []).length
+                  return `mais ${MIN_FOTOS - n} foto de "${LABEL_STAGE_TECNICO[st] || st}" (${n} de ${MAX_FOTOS})`
+                }),
+                conclusaoParcial
+                  ? `chegar a ${MIN_FOTOS} fotos do serviço concluído, ou remover a que tirou`
                   : null,
                 justOk ? null : 'o motivo de não haver foto',
                 problema.trim() ? null : 'o problema encontrado',

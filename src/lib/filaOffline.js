@@ -107,8 +107,8 @@ export async function comprimirImagem(file, ladoMax = 1600, qualidade = 0.72) {
 }
 
 // ── Enfileirar uma transição ─────────────────────────────────
-// fotos: [{ stage, arquivo }] — uma ou duas, conforme a regra de
-// evidência da transição.
+// fotos: [{ stage, arquivo }] — VÁRIAS por etapa, e mais de uma etapa
+// na mesma transição, conforme a regra de evidência.
 export async function enfileirarTransicao({
   osId, osNumero, de, para, fotos = [], nota = null, extra = {}, byName, byId
 }) {
@@ -118,11 +118,26 @@ export async function enfileirarTransicao({
   const preparadas = []
   for (const f of fotos) {
     const blob = await comprimirImagem(f.arquivo)
-    const chave = `${id}:${f.stage}`
+
+    // A chave do blob precisa ser única por FOTO, não por etapa.
+    //
+    // Era `${id}:${f.stage}`, e com duas fotos do mesmo estágio a segunda
+    // SOBRESCREVIA a primeira no store de blobs — sem erro e sem aviso. A fila
+    // ficava com duas entradas em item.fotos[], as duas apontando para a mesma
+    // chave, e o que subia eram duas cópias da última foto tirada, cada uma com
+    // seu client_uuid: duas linhas em ti_os_photos, a mesma imagem nas duas, e a
+    // foto que o técnico tirou primeiro perdida para sempre.
+    //
+    // O clientUuid já existia e já é único por foto. Só faltava entrar na chave.
+    // Itens que já estão na fila com a chave antiga continuam funcionando:
+    // lerBlob e removerItem usam o chaveBlob gravado no próprio item, não
+    // recalculam.
+    const clientUuid = novoUuid()
+    const chave = `${id}:${f.stage}:${clientUuid}`
     preparadas.push({
       stage: f.stage,
       chaveBlob: chave,
-      clientUuid: novoUuid(),
+      clientUuid,
       tipo: blob.type || 'image/jpeg',
       bytes: blob.size,
       enviada: false,
