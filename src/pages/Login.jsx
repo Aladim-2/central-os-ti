@@ -13,9 +13,22 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
-      await signIn(email, password)
+      // Espaço colado junto do e-mail é recusa silenciosa: o GoTrue não apara.
+      await signIn(email.trim(), password)
     } catch (err) {
-      setError('E-mail ou senha incorretos. Verifique os dados e tente novamente.')
+      // Mensagem genérica esconde o motivo real. Em 18/09/2026 o login local
+      // recusou e a causa "não foi determinada" — porque esta tela apagava a
+      // causa: chave errada, projeto pausado, rate limit, rede caída e CORS
+      // saíam todos como "e-mail ou senha incorretos". O princípio já estava
+      // escrito no trocarSenha (supabase.js): se o servidor recusar, a
+      // mensagem dele sobe sem tradução.
+      console.error('[Login] falha ao entrar:', err)
+      const ehCredencial =
+        err?.code === 'invalid_credentials' ||
+        /invalid login credentials/i.test(err?.message || '')
+      setError(ehCredencial
+        ? 'E-mail ou senha incorretos. Verifique os dados e tente novamente.'
+        : `Não foi possível entrar: ${err?.message || 'erro desconhecido'}`)
     } finally {
       setLoading(false)
     }
