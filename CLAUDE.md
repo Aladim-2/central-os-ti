@@ -268,6 +268,11 @@ carregamento da página, e app instalado que fica dias aberto nunca checa.
   servem.
 - `index.html:7` usa `apple-mobile-web-app-capable`, depreciado; o console
   pede `mobile-web-app-capable` junto.
+- **A Elétrica provavelmente tem o mesmo defeito de Realtime que a TI tinha:**
+  a assinatura recarregava a LISTA e não a OS ABERTA, então mudança feita pelo
+  gestor (liberação de material) chegava ao aparelho e morria no `osList` —
+  quem estava com a OS aberta só via saindo e entrando. Corrigido aqui em
+  `TecnicoApp.jsx` ressincronizando o `selOS` dentro de `carregar()`. Conferir lá.
 
 **`trg_ti_relatorio_promover` promove de novo depois de uma devolução — edge
 conhecido e aceito.** O gatilho (BEFORE INSERT OR UPDATE em `ti_orders`) leva

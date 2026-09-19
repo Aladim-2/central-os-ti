@@ -316,6 +316,28 @@ function SeletorUnidade({ valor, onChange, disabled }) {
   )
 }
 
+// Observação livre, uma linha, opcional, sempre no mesmo lugar: logo acima da
+// ação da tela. Vai para observations pela RPC ti_append_observacao, de carona
+// no MESMO item da fila que carrega a transição — então herda a fila offline e
+// a idempotência por linha exata, sem caminho de escrita novo.
+//
+// UMA LINHA não é economia de espaço: ti_append_observacao é idempotente por
+// LINHA EXATA, e compara a nota INTEIRA contra as linhas já gravadas. Uma nota
+// com quebra de linha nunca casa com linha nenhuma — e a retentativa da fila
+// gravaria de novo, a cada tentativa. Campo de uma linha é o que mantém a
+// garantia de não duplicar.
+function CampoObservacao({ valor, onChange, disabled }) {
+  return (
+    <input value={valor} onChange={e => onChange(e.target.value)} disabled={disabled}
+      placeholder="Observação (opcional)" aria-label="Observação (opcional)"
+      style={{
+        width:'100%', minHeight:44, padding:'10px 12px', borderRadius:8,
+        border:`0.5px solid ${BORDA}`, fontSize:14, boxSizing:'border-box',
+        marginBottom:12, background:'#fff'
+      }} />
+  )
+}
+
 function Secao({ titulo, dica, children }) {
   return (
     <div style={{ marginBottom:16 }}>
@@ -358,6 +380,12 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
     Array.isArray(os.materials_needed) ? os.materials_needed.map(normalizarMaterial) : []
   )
   const [fotosVist,   setFotosVist]   = useState({})
+
+  // Uma observação só, atravessando as telas. São momentos diferentes da mesma
+  // visita, e o que o técnico escreveu em execução continua valendo quando ele
+  // toca em "Terminei o serviço" — perder o texto ao mudar de tela seria a
+  // forma mais rápida de ensinar que não vale a pena escrever.
+  const [observacao,  setObservacao]  = useState('')
 
   // ── Conclusão ──
   const [problema,       setProblema]       = useState('')
@@ -572,6 +600,7 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
         osId: os.id, osNumero: os.numero,
         de: os.status, para: 'aguardando',
         fotos: exigidasVistoria.map(stage => ({ stage, arquivo: fotosVist[stage] })),
+        nota: observacao.trim() || null,
         extra,
         byName: profile.name, byId: profile.id
       })
@@ -579,7 +608,63 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
       onAplicado({ ...os, status: 'aguardando', ...extra })
       setFotosVist({})
       setMateriais(lista)
+      setObservacao('')
       registrado('Pedido enviado. A central foi avisada.')
+      await sincronizar()
+    } catch (e) { mostrarErro('Erro ao registrar: ' + e.message) }
+    finally { setSalvando(false) }
+  }
+
+  // ── vistoria → execucao ────────────────────────────────────
+  // Avaliar, não precisar de peça e ainda assim não terminar na hora é o caso
+  // comum em TI: formatar, reinstalar, atualizar. Sem esta saída o técnico é
+  // empurrado para concluir antes de ter terminado, ou para pedir material de
+  // que não precisa — e as duas coisas sujam o registro de formas diferentes.
+  //
+  // Fica como ação SECUNDÁRIA porque é a menos frequente das três, não porque
+  // seja menos legítima. As guardas são as mesmas das outras duas saídas.
+  async function comecarAgora() {
+    const diag = diagnostico.trim()
+
+    if (faltandoVist.length > 0) {
+      mostrarErro(
+        'Falta a evidência: ' +
+        faltandoVist.map(s => LABEL_STAGE_TECNICO[s] || s).join(' e ') +
+        '. A foto é obrigatória.'
+      )
+      return
+    }
+    if (!diag) {
+      mostrarErro('Escreva o que você encontrou antes de sair da avaliação.')
+      return
+    }
+
+    // Começar sem material com a lista preenchida apaga a lista — inclusive a
+    // que o gestor tenha começado. Não é o caminho provável, mas é
+    // irreversível pela tela, então pergunta antes.
+    if (materiaisValidos.length > 0 && !confirm(
+      'A lista tem ' + materiaisValidos.length + ' item(ns). ' +
+      'Começar sem material APAGA a lista. Confirma?'
+    )) return
+
+    const extra = { diagnostico: diag, materials_needed: [] }
+
+    setSalvando(true)
+    try {
+      await enfileirarTransicao({
+        osId: os.id, osNumero: os.numero,
+        de: os.status, para: 'execucao',
+        fotos: exigidasVistoria.map(stage => ({ stage, arquivo: fotosVist[stage] })),
+        nota: observacao.trim() || null,
+        extra,
+        byName: profile.name, byId: profile.id
+      })
+
+      onAplicado({ ...os, status: 'execucao', ...extra })
+      setFotosVist({})
+      setMateriais([])
+      setObservacao('')
+      registrado('Avaliação registrada. Pode começar.')
       await sincronizar()
     } catch (e) { mostrarErro('Erro ao registrar: ' + e.message) }
     finally { setSalvando(false) }
@@ -596,9 +681,11 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
         osId: os.id, osNumero: os.numero,
         de: 'aguardando', para: 'execucao',
         fotos: [{ stage: stageRecebimento, arquivo }],
+        nota: observacao.trim() || null,
         byName: profile.name, byId: profile.id
       })
       onAplicado({ ...os, status: 'execucao' })
+      setObservacao('')
       registrado('Material recebido. Pode começar.')
       await sincronizar()
     } catch (e) { mostrarErro('Erro ao registrar o recebimento: ' + e.message) }
@@ -637,6 +724,17 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
 
   function remUsado(i) {
     setUsados(p => p.filter((_, j) => j !== i))
+  }
+
+  // A nota que vai na trilha ao concluir: a justificativa de não haver foto, a
+  // observação livre que o técnico escreveu na execução, ou as duas — sempre
+  // em uma linha só, pelo motivo explicado no uso.
+  function montarNota() {
+    const partes = [
+      semFotoConclusao ? PREFIXO_SEM_FOTO + justSemFoto.trim() : null,
+      observacao.trim() || null,
+    ].filter(Boolean)
+    return partes.length > 0 ? partes.join(' · ') : null
   }
 
   // ESCRITA ÚNICA, como a saída da avaliação: relatório e material usado viajam
@@ -707,13 +805,20 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
         // A justificativa entra na trilha pela RPC ti_append_observacao, com
         // prefixo fixo. Não vai para relatorio_justificativa_sem_foto: aquela
         // coluna é o ato do gestor, e ele sobrescreveria isto sem aviso.
-        nota: semFotoConclusao ? PREFIXO_SEM_FOTO + justSemFoto.trim() : null,
+        //
+        // Quando há justificativa E observação, os dois fatos vão na MESMA
+        // linha, unidos por " · ". Não é estética: o item da fila carrega uma
+        // nota só, e ti_append_observacao é idempotente por LINHA EXATA —
+        // mandar duas linhas faria a retentativa gravar tudo de novo. O
+        // prefixo continua no começo, então quem procurar por ele ainda acha.
+        nota: montarNota(),
         extra,
         byName: profile.name, byId: profile.id
       })
 
       onAplicado({ ...os, status: 'concluida', ...extra })
       setFotosConc({})
+      setObservacao('')
       setAbrirConclusao(false)
       vibrar(40)
       mostrarAviso(online
@@ -917,6 +1022,8 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
             </p>
           )}
 
+          <CampoObservacao valor={observacao} onChange={setObservacao} disabled={enviando} />
+
           {/* Duas saídas, lado a lado. A da esquerda é a principal; a da direita
               é a mesma conclusão que a tela de execução abre, adiantada para
               quem resolveu na hora e não vai passar por lá. */}
@@ -943,10 +1050,17 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
             </div>
           </div>
 
+          {/* Terceira saída, secundária: nem pedir peça, nem terminar agora. É o
+              caso comum em TI — formatar, reinstalar, atualizar — e sem ela o
+              técnico conclui antes de terminar ou pede material que não precisa. */}
+          <Secundaria onClick={comecarAgora} disabled={!vistoriaPronta || enviando}>
+            Começar agora, sem material
+          </Secundaria>
+
           {vistoriaPronta && materiaisValidos.length === 0 && (
-            <p style={{ fontSize:11, color:CINZA, marginTop:8, lineHeight:1.5 }}>
-              A lista está vazia, então "Preciso de material" fica apagado. Escreva o que
-              precisa, ou conclua pelo botão ao lado.
+            <p style={{ fontSize:11, color:CINZA, marginTop:4, lineHeight:1.5 }}>
+              A lista está vazia, então "Preciso de material" fica apagado. Conclua pelo
+              botão ao lado, ou comece agora sem material.
             </p>
           )}
         </div>
@@ -976,10 +1090,12 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
                 ))}
               </div>
 
-              <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'10px', color:CINZA, fontSize:12 }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'10px 10px 16px', color:CINZA, fontSize:12 }}>
                 <span className="spinner" style={{ width:14, height:14 }} />
                 esperando a central
               </div>
+
+              <CampoObservacao valor={observacao} onChange={setObservacao} disabled={enviando} />
             </>
           ) : (
             <>
@@ -999,6 +1115,8 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
                     fundo="#fff" />
                 ))}
               </div>
+
+              <CampoObservacao valor={observacao} onChange={setObservacao} disabled={enviando} />
 
               <Principal onClick={() => pedirFoto(confirmarRecebimento)} ativo cor={VERDE} enviando={enviando}>
                 📷 Recebi o material
@@ -1032,6 +1150,8 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
             <BotaoCamera stage="execucao" temFoto={false} onFoto={fotoLivreExecucao}
               disabled={enviando} obrigatoria={false} />
           </Secao>
+
+          <CampoObservacao valor={observacao} onChange={setObservacao} disabled={enviando} />
 
           <Principal onClick={() => setAbrirConclusao(true)} ativo cor={VERDE} enviando={enviando}>
             Terminei o serviço
@@ -1142,6 +1262,13 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
                 servico.trim()  ? null : 'o serviço executado',
               ].filter(Boolean).join('; ')}.
             </p>
+          )}
+
+          {/* A observação foi escrita na tela anterior e vai junto com esta
+              ação. Aparece aqui, editável, porque texto que será gravado e não
+              está à vista é texto que o técnico não tem como corrigir. */}
+          {observacao.trim() && (
+            <CampoObservacao valor={observacao} onChange={setObservacao} disabled={enviando} />
           )}
 
           <Principal onClick={concluir} ativo={conclusaoPronta} cor={VERDE} enviando={enviando}>
