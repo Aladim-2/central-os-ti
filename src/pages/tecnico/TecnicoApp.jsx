@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { signOut, fetchOS, subscribeOS, STATUS, drenarFila } from '../../supabase'
 import { listarFila } from '../../lib/filaOffline'
+import { lerFalhas, limparFalhas, falhasEmTexto } from '../../lib/diagnostico'
 import OSExec from './OSExec'
 import TrocarSenha from '../TrocarSenha'
 import Versao from '../../Versao'
@@ -67,6 +68,9 @@ export default function TecnicoApp({ profile }) {
   const [falhaFila, setFalhaFila] = useState(null)
   const [online,    setOnline]    = useState(navigator.onLine)
   const [sincronizando, setSincronizando] = useState(false)
+  const [falhas,    setFalhas]    = useState(lerFalhas)
+  const [verFalhas, setVerFalhas] = useState(false)
+  const [copiado,   setCopiado]   = useState(false)
 
   const jaFezDeepLink = useRef(false)
 
@@ -105,6 +109,7 @@ export default function TecnicoApp({ profile }) {
     try {
       const itens = await listarFila()
       setPendentes(itens.length)
+      setFalhas(lerFalhas())
       const travado = itens.find(i => (i.tentativas || 0) > 0) || null
       setFalhaFila(travado ? {
         tentativas: travado.tentativas,
@@ -276,6 +281,60 @@ export default function TecnicoApp({ profile }) {
           <span style={{ fontSize:11, fontWeight:600 }}>Sair</span>
         </button>
       </div>
+
+      {/* Últimas falhas do aparelho, legíveis sem cabo.
+          O erro morria no console de um celular ao qual ninguém tem acesso.
+          Aqui ele fica gravado, selecionável, com botão de copiar — o técnico
+          manda por WhatsApp e o suporte lê a causa. */}
+      {falhas.length > 0 && (
+        <div style={{ marginTop:12 }}>
+          <button onClick={() => setVerFalhas(v => !v)}
+            style={{
+              width:'100%', minHeight:44, borderRadius:8,
+              border:'0.5px solid #FCA5A5', background:'#FEF2F2',
+              color:'#991B1B', fontSize:12, fontWeight:600, cursor:'pointer'
+            }}>
+            ⚠ {falhas.length} falha(s) registrada(s) no aparelho {verFalhas ? '▲' : '▼'}
+          </button>
+
+          {verFalhas && (
+            <div style={{ marginTop:8 }}>
+              <pre style={{
+                fontSize:10, fontFamily:'ui-monospace, monospace', color:'#7F1D1D',
+                background:'#FEE2E2', borderRadius:8, padding:'10px',
+                whiteSpace:'pre-wrap', wordBreak:'break-word', userSelect:'text',
+                maxHeight:220, overflowY:'auto', margin:0
+              }}>
+                {falhasEmTexto(profile.name)}
+              </pre>
+
+              <div style={{ display:'flex', gap:8, marginTop:8 }}>
+                <button
+                  onClick={async () => {
+                    const texto = falhasEmTexto(profile.name)
+                    try {
+                      await navigator.clipboard.writeText(texto)
+                      setCopiado(true)
+                      setTimeout(() => setCopiado(false), 2500)
+                    } catch {
+                      // Sem permissão de área de transferência o texto continua
+                      // selecionável acima — a saída existe, só dá mais trabalho.
+                      setCopiado(false)
+                    }
+                  }}
+                  style={{ flex:1, minHeight:44, borderRadius:8, border:'none', background:ESCURO, color:'#fff', fontSize:12, fontWeight:600, cursor:'pointer' }}>
+                  {copiado ? '✓ copiado' : 'Copiar para o suporte'}
+                </button>
+                <button
+                  onClick={() => { limparFalhas(); setFalhas([]); setVerFalhas(false) }}
+                  style={{ flex:1, minHeight:44, borderRadius:8, border:'0.5px solid #e5e3dc', background:'#fff', color:'#5f5e5a', fontSize:12, fontWeight:600, cursor:'pointer' }}>
+                  Limpar
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* O tecnico e quem mais fica preso numa versao velha: e ele que
           instala o app e some para o campo. Aqui ele consegue dizer em

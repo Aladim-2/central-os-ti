@@ -5,6 +5,7 @@ import {
   uploadPhoto, addHistory, drenarFila
 } from '../../supabase'
 import { enfileirarTransicao, pendentesDaOS, novoUuid, removerItem } from '../../lib/filaOffline'
+import { registrarFalha } from '../../lib/diagnostico'
 
 // ============================================================
 // EXECUÇÃO DE UMA OS — tela do técnico em campo
@@ -98,7 +99,11 @@ function abrirMaps(loc) {
 function pedirFoto(onArquivo) {
   const input = document.createElement('input')
   input.type = 'file'
-  input.accept = 'image/*'
+  // image/jpeg, e não image/*: com a lista aberta o iPhone entrega HEIC, que
+  // createImageBitmap recusa e o servidor de mídia não conhece. Restringindo,
+  // o próprio iOS converte para JPEG na entrega. A câmera já produz JPEG em
+  // todo lugar, então isto não tira nenhuma capacidade de ninguém.
+  input.accept = 'image/jpeg'
   input.capture = 'environment'
   input.onchange = e => { const f = e.target.files?.[0]; if (f) onArquivo(f) }
   input.click()
@@ -622,7 +627,22 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
     setUsados(u => u.length > 0 ? u : usadosIniciais(os))
   }, [mostrarConclusao])
 
-  function mostrarErro(m)  { setErro(m);  setTimeout(() => setErro(null), 6000) }
+  // O ERRO NÃO SOME SOZINHO.
+  //
+  // Sumia em 6 segundos. Numa tela de celular, na rua, com o técnico olhando
+  // para o equipamento e não para o aparelho, 6 segundos é o mesmo que não ter
+  // mostrado — e quando ele finalmente olha, a tela está limpa e parece que
+  // nada aconteceu. Agora fica até ele fechar.
+  //
+  // E toda falha é GRAVADA no aparelho, para ser lida depois pelo rodapé do
+  // app, sem precisar do celular na mão de quem dá suporte.
+  function mostrarErro(m, e) {
+    setErro(m)
+    registrarFalha('tela do técnico', e || new Error(m))
+  }
+
+  // O aviso é benigno e continua sumindo: ele confirma o que deu certo, e
+  // acumular confirmação na tela só atrapalha.
   function mostrarAviso(m) { setAviso(m); setTimeout(() => setAviso(null), 5000) }
 
   // Depois de cada etapa registrada: vibra e conta a verdade sobre o envio. A
@@ -1156,7 +1176,13 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
         </div>
       )}
 
-      {erro &&  <div style={{ background:'#FEE2E2', border:'0.5px solid #FCA5A5', borderRadius:8, padding:'10px 14px', marginBottom:10, fontSize:13, color:'#991B1B' }}>⚠ {erro}</div>}
+      {erro && (
+        <div style={{ background:'#FEE2E2', border:'0.5px solid #FCA5A5', borderRadius:8, padding:'10px 14px', marginBottom:10, display:'flex', gap:8, alignItems:'flex-start' }}>
+          <span style={{ flex:1, fontSize:13, color:'#991B1B', lineHeight:1.5 }}>⚠ {erro}</span>
+          <button onClick={() => setErro(null)} aria-label="Fechar aviso de erro"
+            style={{ flexShrink:0, minWidth:44, minHeight:44, border:'none', background:'none', color:'#991B1B', fontSize:16, cursor:'pointer', padding:0 }}>✕</button>
+        </div>
+      )}
       {aviso && <div style={{ background:'#D1FAE5', border:'0.5px solid #6EE7B7', borderRadius:8, padding:'10px 14px', marginBottom:10, fontSize:13, color:VERDE_T }}>✓ {aviso}</div>}
 
       {/* Quadro dos pendentes: contagem, MOTIVO de cada falha, botão de tentar

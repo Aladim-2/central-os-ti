@@ -20,6 +20,31 @@
 // A drenagem vive em supabase.js, que é quem tem o cliente.
 // ============================================================
 
+import { registrarFalha } from './diagnostico'
+
+// PRAZO EM TUDO QUE ESPERA.
+//
+// Uma promessa que nunca se resolve é invisível para try/catch: não é erro, é
+// ausência de resposta. O await simplesmente não volta, o finally não roda, e a
+// tela fica parada sem mensagem nenhuma. Foi assim que uma foto sumiu sem
+// deixar rastro — canvas.toBlob não chamou o callback e o app inteiro parou
+// naquele ponto, em silêncio.
+//
+// Toda espera daqui para baixo tem teto. Estourar o teto vira ERRO, que é
+// coisa que a tela sabe mostrar.
+const TIMEOUT_IDB_MS        = 15000
+const TIMEOUT_COMPRESSAO_MS = 12000
+
+function comPrazo(promessa, ms, mensagem) {
+  return new Promise((resolve, reject) => {
+    const relogio = setTimeout(() => reject(new Error(mensagem)), ms)
+    promessa.then(
+      v => { clearTimeout(relogio); resolve(v) },
+      e => { clearTimeout(relogio); reject(e) }
+    )
+  })
+}
+
 const DB_NOME    = 'central-os-ti'
 const DB_VERSAO  = 1
 const ST_FILA    = 'fila'
@@ -30,8 +55,17 @@ let dbPromise = null
 
 function abrir() {
   if (dbPromise) return dbPromise
-  dbPromise = new Promise((resolve, reject) => {
+
+  const tentativa = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NOME, DB_VERSAO)
+
+    // onblocked dispara quando outra aba segura a versão antiga. Sem tratar,
+    // NEM onsuccess NEM onerror disparam: a promessa fica pendurada para
+    // sempre, e como ela é cacheada, todo acesso ao banco local depois dela
+    // fica pendurado junto.
+    req.onblocked = () => reject(new Error(
+      'Banco local bloqueado por outra aba do app. Feche as outras abas e tente de novo.'
+    ))
     req.onupgradeneeded = () => {
       const db = req.result
       if (!db.objectStoreNames.contains(ST_FILA)) {
@@ -49,18 +83,41 @@ function abrir() {
     req.onsuccess = () => resolve(req.result)
     req.onerror   = () => reject(req.error || new Error('Falha ao abrir o banco local'))
   })
+
+  // O fracasso NÃO fica cacheado: se o cache guardasse a promessa rejeitada, o
+  // primeiro tropeço condenaria a sessão inteira, mesmo que a causa já tivesse
+  // passado. Sucesso fica, porque a conexão é reaproveitável.
+  dbPromise = comPrazo(
+    tentativa,
+    TIMEOUT_IDB_MS,
+    `O banco local não abriu em ${TIMEOUT_IDB_MS / 1000}s.`
+  ).catch(e => {
+    dbPromise = null
+    registrarFalha('abrir banco local', e)
+    throw e
+  })
+
   return dbPromise
 }
 
 function tx(db, stores, modo) {
   const t = db.transaction(stores, modo)
+  const pronto = new Promise((resolve, reject) => {
+    t.oncomplete = () => resolve()
+    t.onerror    = () => reject(t.error || new Error('Transação local falhou'))
+    t.onabort    = () => reject(t.error || new Error('Transação local abortada'))
+  })
   return {
     t,
-    pronto: new Promise((resolve, reject) => {
-      t.oncomplete = () => resolve()
-      t.onerror    = () => reject(t.error)
-      t.onabort    = () => reject(t.error || new Error('Transação local abortada'))
-    })
+    // Transação que trava — cota estourada em alguns navegadores, aba
+    // suspensa pelo sistema — não dispara evento nenhum. Sem prazo, o await
+    // fica esperando para sempre.
+    pronto: comPrazo(
+      pronto,
+      TIMEOUT_IDB_MS,
+      `O banco local não respondeu em ${TIMEOUT_IDB_MS / 1000}s ao gravar ${stores.join(', ')}. ` +
+      'Pode ser falta de espaço no aparelho.'
+    )
   }
 }
 
@@ -81,13 +138,36 @@ export function novoUuid() {
 }
 
 // ── Compressão ───────────────────────────────────────────────
-// A foto entra comprimida na fila. Payload menor sobe em rede
-// ruim, que é o cenário para o qual a fila existe, e pesa menos
-// no armazenamento do aparelho.
+// A foto entra comprimida na fila. Payload menor sobe em rede ruim, que é o
+// cenário para o qual a fila existe, e pesa menos no armazenamento.
+//
+// COMPRIMIR É OTIMIZAÇÃO, NUNCA REQUISITO. Qualquer coisa que dê errado aqui
+// devolve o arquivo ORIGINAL e a foto segue viagem. O que não pode acontecer,
+// e acontecia, é esta função não voltar.
+//
+// Dois pontos penduravam, os dois no iPhone:
+//
+//  · `new Promise(res => canvas.toBlob(res, ...))` tinha só resolve. O
+//    toBlob do Safari em iOS pode não chamar o callback — canvas grande,
+//    pressão de memória — e aí a promessa NUNCA se resolve. Não rejeita: fica
+//    pendurada, invisível para o try/catch, e leva o enfileiramento inteiro
+//    junto. Sem erro, sem foto, sem nada na tela.
+//
+//  · createImageBitmap com HEIC do iPhone costuma REJEITAR, o que o catch já
+//    tratava — mas também pode demorar sem fim em arquivo grande.
+//
+// Agora os dois têm prazo, o null do toBlob é tratado explicitamente, e toda
+// falha fica registrada para aparecer no rodapé do app.
 export async function comprimirImagem(file, ladoMax = 1600, qualidade = 0.72) {
   if (!file?.type?.startsWith('image/')) return file
+
   try {
-    const bitmap = await createImageBitmap(file)
+    const bitmap = await comPrazo(
+      createImageBitmap(file),
+      TIMEOUT_COMPRESSAO_MS,
+      `A imagem não foi decodificada em ${TIMEOUT_COMPRESSAO_MS / 1000}s (${file.type || 'tipo desconhecido'}).`
+    )
+
     const escala = Math.min(1, ladoMax / Math.max(bitmap.width, bitmap.height))
     const w = Math.round(bitmap.width * escala)
     const h = Math.round(bitmap.height * escala)
@@ -97,11 +177,22 @@ export async function comprimirImagem(file, ladoMax = 1600, qualidade = 0.72) {
     canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h)
     bitmap.close?.()
 
-    const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', qualidade))
-    // Se a compressão não ajudou, fica o original.
-    return blob && blob.size < file.size ? blob : file
+    const blob = await comPrazo(
+      new Promise(res => canvas.toBlob(res, 'image/jpeg', qualidade)),
+      TIMEOUT_COMPRESSAO_MS,
+      `canvas.toBlob não respondeu em ${TIMEOUT_COMPRESSAO_MS / 1000}s (${w}x${h}).`
+    )
+
+    if (!blob) {
+      // toBlob pode chamar o callback com null. É falha, não "sem resultado":
+      // registra e segue com o original.
+      registrarFalha('comprimir foto', new Error(`canvas.toBlob devolveu null (${w}x${h}).`))
+      return file
+    }
+
+    return blob.size < file.size ? blob : file
   } catch (e) {
-    console.warn('Compressão falhou, enviando original:', e)
+    registrarFalha('comprimir foto', e)
     return file
   }
 }
@@ -143,9 +234,22 @@ export async function enfileirarTransicao({
       enviada: false,
       urlFinal: null
     })
-    const { t, pronto } = tx(db, [ST_BLOBS], 'readwrite')
-    t.objectStore(ST_BLOBS).put(blob, chave)
-    await pronto
+
+    // O erro diz QUAL foto e QUANTO pesava. "Falha ao gravar" sozinho não
+    // distingue cota estourada de banco bloqueado, e é justamente essa
+    // distinção que decide o que fazer com o aparelho.
+    try {
+      const { t, pronto } = tx(db, [ST_BLOBS], 'readwrite')
+      t.objectStore(ST_BLOBS).put(blob, chave)
+      await pronto
+    } catch (e) {
+      const detalhe = new Error(
+        `Não foi possível guardar a foto "${f.stage}" no aparelho ` +
+        `(${Math.round((blob.size || 0) / 1024)} KB): ${e.message}`
+      )
+      registrarFalha('guardar foto no aparelho', detalhe)
+      throw detalhe
+    }
   }
 
   const item = {
