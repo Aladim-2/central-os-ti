@@ -45,6 +45,21 @@ function comPrazo(promessa, ms, mensagem) {
   })
 }
 
+// O DOMException REAL, e nao um texto generico.
+//
+// "Transacao local falhou" engolia justamente o que decide o conserto:
+// TransactionInactiveError (await dentro da transacao), QuotaExceededError
+// (espaco), DataCloneError (valor que o structured clone nao aceita),
+// InvalidStateError (banco fechado) e UnknownError (o balde do Safari) pedem
+// acoes diferentes. O `message` do Safari vem vazio com frequencia, entao o
+// `name` sozinho ja tem de ser util.
+function textoErro(e) {
+  if (!e) return 'erro desconhecido (nenhum objeto de erro foi entregue)'
+  const nome = e.name || 'Error'
+  const msg  = e.message || '(sem mensagem)'
+  return nome + ': ' + msg
+}
+
 const DB_NOME    = 'central-os-ti'
 const DB_VERSAO  = 1
 const ST_FILA    = 'fila'
@@ -102,13 +117,27 @@ function abrir() {
 
 function tx(db, stores, modo) {
   const t = db.transaction(stores, modo)
+
+  // O erro do PEDIDO e mais especifico que o da transacao, e as vezes e o
+  // unico que existe: no Safari a transacao pode abortar com `t.error` nulo,
+  // e ai o `put` era a unica testemunha do que houve. Guardado aqui, ele
+  // chega a quem espera em vez de virar "falhou".
+  let erroPedido = null
+
   const pronto = new Promise((resolve, reject) => {
     t.oncomplete = () => resolve()
-    t.onerror    = () => reject(t.error || new Error('Transação local falhou'))
-    t.onabort    = () => reject(t.error || new Error('Transação local abortada'))
+    t.onerror    = () => reject(erroPedido || t.error || new Error('Transação local falhou sem erro declarado'))
+    t.onabort    = () => reject(erroPedido || t.error || new Error('Transação local abortada sem erro declarado'))
   })
+
   return {
     t,
+    // Pendura um handler no pedido; NAO espera por ele. Chamar isto entre o
+    // `transaction()` e o `put` e seguro porque nao cede o laco de eventos.
+    vigiar(req) {
+      req.onerror = () => { if (!erroPedido) erroPedido = req.error }
+      return req
+    },
     // Transação que trava — cota estourada em alguns navegadores, aba
     // suspensa pelo sistema — não dispara evento nenhum. Sem prazo, o await
     // fica esperando para sempre.
@@ -124,8 +153,30 @@ function tx(db, stores, modo) {
 function pedido(req) {
   return new Promise((resolve, reject) => {
     req.onsuccess = () => resolve(req.result)
-    req.onerror   = () => reject(req.error)
+    // Rejeitar com `null` produzia um catch sem erro nenhum para mostrar.
+    req.onerror   = () => reject(req.error || new Error('Pedido local falhou sem erro declarado'))
   })
+}
+
+// ── Blob ⇄ IndexedDB ────────────────────────────────────
+// O SAFARI FALHA AO GRAVAR BLOB DIRETO NO INDEXEDDB. Nao e cota: a mesma foto
+// que falha com 188 KB falha com 362 KB, e acao sem foto grava normalmente. O
+// que vai para o store e um ArrayBuffer, com o tipo MIME num campo ao lado; o
+// Blob volta a existir so na hora do upload.
+//
+// A conversao tem de acontecer ANTES de abrir a transacao — ver o comentario
+// em enfileirarTransicao.
+function paraRegistro(buffer, tipo) {
+  return { buffer, tipo: tipo || 'image/jpeg', bytes: buffer.byteLength }
+}
+
+function paraBlob(guardado) {
+  if (!guardado) return null
+  // Fotos enfileiradas ANTES desta mudanca guardam o Blob direto. A fila nao e
+  // migrada — e lida dos dois jeitos, e o que ja estava na fila sobe igual.
+  if (guardado instanceof Blob) return guardado
+  if (guardado.buffer) return new Blob([guardado.buffer], { type: guardado.tipo || 'image/jpeg' })
+  return null
 }
 
 export function novoUuid() {
@@ -235,18 +286,49 @@ export async function enfileirarTransicao({
       urlFinal: null
     })
 
-    // O erro diz QUAL foto e QUANTO pesava. "Falha ao gravar" sozinho não
-    // distingue cota estourada de banco bloqueado, e é justamente essa
-    // distinção que decide o que fazer com o aparelho.
+    // NENHUM AWAIT ENTRE ABRIR A TRANSACAO E O PUT.
+    //
+    // No Safari a transacao fica inativa assim que o controle sai do laco de
+    // eventos. Qualquer await entre `db.transaction()` e o `put` a mata com
+    // TransactionInactiveError. Por isso o ArrayBuffer e produzido AQUI, antes
+    // de a transacao existir: converter la dentro seria criar exatamente o
+    // defeito que este bloco conserta.
+    let registro
     try {
-      const { t, pronto } = tx(db, [ST_BLOBS], 'readwrite')
-      t.objectStore(ST_BLOBS).put(blob, chave)
+      const buffer = await comPrazo(
+        blob.arrayBuffer(),
+        TIMEOUT_COMPRESSAO_MS,
+        `A foto não virou ArrayBuffer em ${TIMEOUT_COMPRESSAO_MS / 1000}s (${Math.round((blob.size || 0) / 1024)} KB).`
+      )
+      registro = paraRegistro(buffer, blob.type)
+    } catch (e) {
+      const detalhe = new Error(
+        `Não foi possível ler a foto "${f.stage}" para gravar ` +
+        `(${Math.round((blob.size || 0) / 1024)} KB): ${textoErro(e)}`
+      )
+      detalhe.name = e?.name || 'Error'
+      detalhe.cause = e
+      registrarFalha('guardar foto no aparelho', detalhe)
+      throw detalhe
+    }
+
+    // O erro diz QUAL foto, QUANTO pesava e QUAL DOMException veio. O texto
+    // generico de antes — "Transação local falhou" — nao distinguia cota
+    // estourada de transacao inativa, e e justamente essa distincao que decide
+    // o que fazer com o aparelho.
+    try {
+      const { t, pronto, vigiar } = tx(db, [ST_BLOBS], 'readwrite')
+      vigiar(t.objectStore(ST_BLOBS).put(registro, chave))
       await pronto
     } catch (e) {
       const detalhe = new Error(
         `Não foi possível guardar a foto "${f.stage}" no aparelho ` +
-        `(${Math.round((blob.size || 0) / 1024)} KB): ${e.message}`
+        `(${Math.round((blob.size || 0) / 1024)} KB): ${textoErro(e)}`
       )
+      // O nome do erro ORIGINAL sobrevive ao embrulho: e ele que o
+      // diagnostico.js grava no campo `nome` e que aparece no rodape do app.
+      detalhe.name = e?.name || 'Error'
+      detalhe.cause = e
       registrarFalha('guardar foto no aparelho', detalhe)
       throw detalhe
     }
@@ -262,8 +344,8 @@ export async function enfileirarTransicao({
     statusAplicado: false   // updateOS + addHistory já foram
   }
 
-  const { t, pronto } = tx(db, [ST_FILA], 'readwrite')
-  t.objectStore(ST_FILA).put(item)
+  const { t, pronto, vigiar } = tx(db, [ST_FILA], 'readwrite')
+  vigiar(t.objectStore(ST_FILA).put(item))
   await pronto
   return item
 }
@@ -287,13 +369,15 @@ export async function contarPendentes() {
 export async function lerBlob(chave) {
   const db = await abrir()
   const { t } = tx(db, [ST_BLOBS], 'readonly')
-  return pedido(t.objectStore(ST_BLOBS).get(chave))
+  // O store guarda { buffer, tipo }. O Blob so volta a existir aqui, na
+  // fronteira com o upload, que e o unico lugar que precisa dele.
+  return paraBlob(await pedido(t.objectStore(ST_BLOBS).get(chave)))
 }
 
 export async function salvarItem(item) {
   const db = await abrir()
-  const { t, pronto } = tx(db, [ST_FILA], 'readwrite')
-  t.objectStore(ST_FILA).put(item)
+  const { t, pronto, vigiar } = tx(db, [ST_FILA], 'readwrite')
+  vigiar(t.objectStore(ST_FILA).put(item))
   await pronto
   return item
 }
