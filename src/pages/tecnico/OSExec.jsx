@@ -4,7 +4,7 @@ import {
   PREFIXO_SEM_FOTO, montarRelatorioTexto,
   uploadPhoto, addHistory, drenarFila
 } from '../../supabase'
-import { enfileirarTransicao, pendentesDaOS, novoUuid } from '../../lib/filaOffline'
+import { enfileirarTransicao, pendentesDaOS, novoUuid, removerItem } from '../../lib/filaOffline'
 
 // ============================================================
 // EXECUÇÃO DE UMA OS — tela do técnico em campo
@@ -59,6 +59,13 @@ const MSG_OFFLINE = 'Salvo no aparelho — envia quando a internet voltar.'
 // couberam.
 const MIN_FOTOS = 2
 const MAX_FOTOS = 4
+
+// Depois de três tentativas sem sucesso, o técnico ganha o direito de descartar
+// o registro. Não é limpeza automática: item que falha sozinho continua na fila
+// tentando para sempre, porque a causa costuma ser temporária. O que muda aos
+// três é a tela OFERECER a saída — antes disso, descartar seria desistir cedo
+// demais de um registro que ainda vai subir.
+const DESCARTE_APOS = 3
 
 // Vibração curta como confirmação tátil de etapa registrada. Guarda dupla:
 // `?.` cobre o navegador que não implementa, o try/catch cobre o que implementa
@@ -625,12 +632,61 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
     mostrarAviso(online ? msgOnline : MSG_OFFLINE)
   }
 
-  async function sincronizar() {
+  // O resultado da drenagem vira mensagem de verdade na tela.
+  //
+  // Antes, QUALQUER falha virava o aviso verde "Salvo no aparelho — envia
+  // quando a internet voltar". Tranquilizador e, com internet funcionando,
+  // FALSO: o mesmo erro se repetia a cada minuto e o técnico não tinha como
+  // saber. Agora a mensagem benigna só aparece quando está mesmo sem rede; com
+  // rede, aparece o erro, com o motivo, em vermelho.
+  async function sincronizar(forcar = false) {
     try {
-      const r = await drenarFila()
+      const r = await drenarFila(undefined, { forcar })
       await recarregarFila()
-      if (r.falhas > 0) mostrarAviso(MSG_OFFLINE)
-    } catch { await recarregarFila() }
+
+      if (r.falhas > 0) {
+        if (!navigator.onLine) {
+          mostrarAviso(MSG_OFFLINE)
+        } else {
+          const primeiro = r.erros?.[0]
+          mostrarErro(
+            'Não foi possível enviar' +
+            (primeiro?.osNumero ? ` o registro do ${primeiro.osNumero}` : '') +
+            ': ' + (primeiro?.erro || 'motivo não informado') +
+            ' — está salvo no aparelho. Veja o quadro dos pendentes abaixo.'
+          )
+        }
+      }
+    } catch (e) {
+      // A drenagem inteira estourou, não um item. Também tem de aparecer.
+      await recarregarFila()
+      mostrarErro('A fila não conseguiu enviar: ' + (e?.message || e))
+    }
+  }
+
+  async function tentarAgora() {
+    setSalvando(true)
+    // forcar: o técnico tocou no botão, então a espera crescente não vale.
+    try { await sincronizar(true) }
+    finally { setSalvando(false) }
+  }
+
+  // Descartar é do TÉCNICO, nunca automático. E confirma, porque o que se perde
+  // aqui são fotos que não existem em outro lugar.
+  async function descartarPendente(item) {
+    if (!confirm(
+      `Descartar o registro do ${item.osNumero}?\n\n` +
+      `${(item.fotos || []).length} foto(s) e a mudança de etapa serão APAGADAS do ` +
+      'aparelho e não vão para a central. Isso não pode ser desfeito.'
+    )) return
+
+    try {
+      await removerItem(item)
+      await recarregarFila()
+      mostrarAviso('Registro descartado do aparelho.')
+    } catch (e) {
+      mostrarErro('Não foi possível descartar: ' + e.message)
+    }
   }
 
   // ── recebida → vistoria ────────────────────────────────────
@@ -999,6 +1055,9 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
 
   const loc      = os.location
   const enviando = salvando
+  // Um item que já tentou e falhou não é "esperando internet": é travado, e a
+  // tela precisa parecer diferente nos dois casos.
+  const travados = fila.some(i => (i.tentativas || 0) > 0)
 
   // ── Tela 6: recibo ──
   if (os.status === 'concluida') {
@@ -1012,15 +1071,50 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
         </div>
         <Trilha os={os} />
 
-        <div style={{ background:VERDE_F, border:`1px solid ${VERDE}`, borderRadius:12, padding:'20px 16px', textAlign:'center', marginBottom:12 }}>
-          <p style={{ fontSize:38, lineHeight:1, marginBottom:8 }}>✅</p>
-          <p style={{ fontSize:16, fontWeight:700, color:VERDE_T, marginBottom:4 }}>
-            Chamado concluído{fmtHora(os.concluida_em) ? ` às ${fmtHora(os.concluida_em)}` : ''}.
-          </p>
-          <p style={{ fontSize:13, color:VERDE_T, lineHeight:1.5 }}>
-            Relatório enviado para validação da central.
-          </p>
-        </div>
+        {/* O recibo é a tela em que a mentira custa mais caro.
+            os.status vira 'concluida' pelo estado otimista, ANTES de a fila
+            drenar — então o técnico via "Relatório enviado para validação" com
+            o registro ainda parado no aparelho, guardava o celular e ia embora.
+            Com item na fila, o recibo diz o que de fato aconteceu. */}
+        {fila.length > 0 ? (
+          <div style={{
+            background: travados ? '#FEF2F2' : LARANJA_F,
+            border: `1px solid ${travados ? '#FCA5A5' : '#FCD34D'}`,
+            borderRadius:12, padding:'20px 16px', textAlign:'center', marginBottom:12
+          }}>
+            <p style={{ fontSize:38, lineHeight:1, marginBottom:8 }}>{travados ? '⚠' : '⏳'}</p>
+            <p style={{ fontSize:16, fontWeight:700, color: travados ? '#991B1B' : LARANJA_T, marginBottom:4 }}>
+              Serviço concluído — mas ainda não enviado.
+            </p>
+            <p style={{ fontSize:13, color: travados ? '#991B1B' : LARANJA_T, lineHeight:1.5, marginBottom:12 }}>
+              {travados
+                ? `${fila.length} registro(s) travado(s) no aparelho. Motivo: ${fila.find(i => (i.tentativas || 0) > 0)?.ultimoErro || 'não informado'}`
+                : `${fila.length} registro(s) na fila. Sobe sozinho quando a conexão voltar.`}
+            </p>
+            <button onClick={tentarAgora} disabled={enviando}
+              style={{
+                width:'100%', minHeight:48, borderRadius:10, border:'none',
+                background: enviando ? '#cfcdc6' : ESCURO, color:'#fff',
+                fontSize:14, fontWeight:700, cursor: enviando ? 'wait' : 'pointer'
+              }}>
+              {enviando ? 'Enviando…' : '↻ Tentar enviar agora'}
+            </button>
+            <p style={{ fontSize:11, color: travados ? '#991B1B' : LARANJA_T, marginTop:8, lineHeight:1.5 }}>
+              A central só vê este relatório depois que ele subir. <strong>NÃO desinstale o
+              app nem limpe os dados.</strong>
+            </p>
+          </div>
+        ) : (
+          <div style={{ background:VERDE_F, border:`1px solid ${VERDE}`, borderRadius:12, padding:'20px 16px', textAlign:'center', marginBottom:12 }}>
+            <p style={{ fontSize:38, lineHeight:1, marginBottom:8 }}>✅</p>
+            <p style={{ fontSize:16, fontWeight:700, color:VERDE_T, marginBottom:4 }}>
+              Chamado concluído{fmtHora(os.concluida_em) ? ` às ${fmtHora(os.concluida_em)}` : ''}.
+            </p>
+            <p style={{ fontSize:13, color:VERDE_T, lineHeight:1.5 }}>
+              Relatório enviado para validação da central.
+            </p>
+          </div>
+        )}
 
         <div style={{ background:'#fff', border:`0.5px solid ${BORDA}`, borderRadius:10, padding:'12px 14px', marginBottom:16 }}>
           <p style={{ fontSize:12, color:'#111', marginBottom:5 }}>🏫 {loc?.name || '—'}</p>
@@ -1065,13 +1159,66 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
       {erro &&  <div style={{ background:'#FEE2E2', border:'0.5px solid #FCA5A5', borderRadius:8, padding:'10px 14px', marginBottom:10, fontSize:13, color:'#991B1B' }}>⚠ {erro}</div>}
       {aviso && <div style={{ background:'#D1FAE5', border:'0.5px solid #6EE7B7', borderRadius:8, padding:'10px 14px', marginBottom:10, fontSize:13, color:VERDE_T }}>✓ {aviso}</div>}
 
+      {/* Quadro dos pendentes: contagem, MOTIVO de cada falha, botão de tentar
+          de novo e saída para descartar o que não passa. O técnico tocava e
+          nada acontecia; tudo o que ele precisava para entender já estava
+          gravado no aparelho e nenhuma tela mostrava. */}
       {fila.length > 0 && (
-        <div style={{ background:LARANJA_F, border:'0.5px solid #FCD34D', borderRadius:10, padding:'10px 14px', marginBottom:12 }}>
-          <p style={{ fontSize:12, fontWeight:600, color:LARANJA_T, marginBottom:2 }}>
-            ⏳ {fila.length} registro(s) esperando internet
+        <div style={{
+          background: travados ? '#FEF2F2' : LARANJA_F,
+          border: `0.5px solid ${travados ? '#FCA5A5' : '#FCD34D'}`,
+          borderRadius:10, padding:'12px 14px', marginBottom:12
+        }}>
+          <p style={{ fontSize:12, fontWeight:700, color: travados ? '#991B1B' : LARANJA_T, marginBottom:8 }}>
+            {travados ? '⚠' : '⏳'} {fila.length} registro(s) esperando envio
           </p>
-          <p style={{ fontSize:11, color:LARANJA_T }}>
-            Já está salvo no aparelho. Sobe sozinho quando a conexão voltar — pode seguir trabalhando.
+
+          <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:10 }}>
+            {fila.map(i => (
+              <div key={i.id} style={{ background:'#fff', border:`0.5px solid ${BORDA}`, borderRadius:8, padding:'9px 11px' }}>
+                <p style={{ fontSize:11, color:'#111' }}>
+                  {i.osNumero} · {(i.fotos || []).length} foto(s)
+                  {i.nota ? ' · com observação' : ''}
+                </p>
+
+                {(i.tentativas || 0) > 0 ? (
+                  <>
+                    <p style={{ fontSize:11, color:'#991B1B', marginTop:4, lineHeight:1.45 }}>
+                      {i.tentativas} tentativa(s) sem sucesso.<br />
+                      <strong>Motivo:</strong> {i.ultimoErro || 'não informado'}
+                    </p>
+                    {i.tentativas >= DESCARTE_APOS && (
+                      <button onClick={() => descartarPendente(i)} disabled={enviando}
+                        style={{
+                          marginTop:8, width:'100%', minHeight:44, borderRadius:8,
+                          border:'0.5px solid #FCA5A5', background:'#FEF2F2',
+                          color:'#991B1B', fontSize:12, fontWeight:600, cursor:'pointer'
+                        }}>
+                        Descartar este registro
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <p style={{ fontSize:11, color:LARANJA_T, marginTop:4 }}>
+                    Ainda não tentou enviar.
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <button onClick={tentarAgora} disabled={enviando}
+            style={{
+              width:'100%', minHeight:48, borderRadius:8, border:'none',
+              background: enviando ? '#cfcdc6' : ESCURO, color:'#fff',
+              fontSize:14, fontWeight:600, cursor: enviando ? 'wait' : 'pointer'
+            }}>
+            {enviando ? 'Enviando…' : '↻ Tentar enviar agora'}
+          </button>
+
+          <p style={{ fontSize:11, color: travados ? '#991B1B' : LARANJA_T, marginTop:8, lineHeight:1.5 }}>
+            Nada se perdeu — está tudo salvo no aparelho. <strong>NÃO desinstale o app nem
+            limpe os dados.</strong>
           </p>
         </div>
       )}

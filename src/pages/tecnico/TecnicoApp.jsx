@@ -114,11 +114,11 @@ export default function TecnicoApp({ profile }) {
     } catch { /* sem fila disponível */ }
   }, [])
 
-  const sincronizar = useCallback(async () => {
+  const sincronizar = useCallback(async (forcar = false) => {
     if (!navigator.onLine) return
     setSincronizando(true)
     try {
-      const r = await drenarFila()
+      const r = await drenarFila(undefined, { forcar })
       if (r.enviados > 0) await carregar()
     } catch (e) {
       console.warn('Fila não drenou agora:', e)
@@ -356,6 +356,21 @@ export default function TecnicoApp({ profile }) {
                     {falhaFila.erro}
                   </p>
                 )}
+
+                {/* Tentar de novo era só automático: a cada 60s, ao reconectar e
+                    ao voltar ao primeiro plano. Nenhum deles é acionável por
+                    quem está olhando a tela e quer saber AGORA se resolveu —
+                    e esperar sem poder fazer nada é o que faz o técnico
+                    desinstalar o app, que é a única coisa que perde dado. */}
+                <button onClick={() => sincronizar(true)} disabled={sincronizando || !online}
+                  style={{
+                    width:'100%', minHeight:44, marginTop:8, borderRadius:8, border:'none',
+                    background: (sincronizando || !online) ? '#cfcdc6' : ESCURO,
+                    color:'#fff', fontSize:13, fontWeight:600,
+                    cursor: (sincronizando || !online) ? 'not-allowed' : 'pointer'
+                  }}>
+                  {sincronizando ? 'Enviando…' : online ? '↻ Tentar enviar agora' : 'Sem internet'}
+                </button>
               </div>
             )}
 

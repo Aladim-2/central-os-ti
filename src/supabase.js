@@ -41,6 +41,13 @@ export const supabase = createClient(url, key, {
 // Ele é público por natureza (viaja no bundle), então o
 // midia-api deve aceitá-lo APENAS na rota de upload. O token de
 // exclusão vive na Edge Function media-delete e nunca aqui.
+// Teto de tempo para UMA foto. Sem ele, um fetch pendurado — rede de escola
+// que aceita a conexão e não responde — trava a drenagem inteira para sempre:
+// a promessa nunca resolve, e tudo que depende dela fica esperando sem prazo.
+// 45s é folgado para foto comprimida em 3G ruim e curto o bastante para o
+// técnico não achar que o app morreu.
+const TIMEOUT_UPLOAD_MS  = 45000
+
 const MEDIA_URL          = 'https://media.aladim.digital'
 const MEDIA_UPLOAD_TOKEN = import.meta.env.VITE_MEDIA_UPLOAD_TOKEN
 const DISCIPLINA         = 'ti'
@@ -361,23 +368,43 @@ export async function uploadPhoto(osId, stage, file, clientUuid = null) {
   // idempotentes sem mudar uma linha do cliente.
   if (clientUuid) fd.append('client_uuid', clientUuid)
 
-  let res
+  // O abort cobre a requisição INTEIRA, inclusive a leitura do corpo: só
+  // limpamos o relógio depois do json(). Um servidor que responde o cabeçalho e
+  // para de mandar corpo penduraria o await do json exatamente como penduraria
+  // o do fetch.
+  const ctrl    = new AbortController()
+  const relogio = setTimeout(() => ctrl.abort(), TIMEOUT_UPLOAD_MS)
+
+  let data
   try {
-    res = await fetch(`${MEDIA_URL}/upload/${DISCIPLINA}/${osId}/${stage}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${MEDIA_UPLOAD_TOKEN}` },
-      body: fd
-    })
-  } catch (e) {
-    throw new Error('Falha de conexão com o servidor de mídia: ' + e.message)
+    let res
+    try {
+      res = await fetch(`${MEDIA_URL}/upload/${DISCIPLINA}/${osId}/${stage}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${MEDIA_UPLOAD_TOKEN}` },
+        body: fd,
+        signal: ctrl.signal
+      })
+    } catch (e) {
+      if (e?.name === 'AbortError') {
+        throw new Error(
+          `Envio da foto cancelado: passou de ${TIMEOUT_UPLOAD_MS / 1000}s sem resposta do ` +
+          'servidor de mídia. A foto continua salva no aparelho.'
+        )
+      }
+      throw new Error('Falha de conexão com o servidor de mídia: ' + e.message)
+    }
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '')
+      throw new Error(`Upload falhou (HTTP ${res.status}): ${txt || res.statusText}`)
+    }
+
+    data = await res.json()
+  } finally {
+    clearTimeout(relogio)
   }
 
-  if (!res.ok) {
-    const txt = await res.text().catch(() => '')
-    throw new Error(`Upload falhou (HTTP ${res.status}): ${txt || res.statusText}`)
-  }
-
-  const data = await res.json()
   if (!data?.sucesso || !data?.url) {
     throw new Error('Resposta inválida do servidor de mídia')
   }
@@ -459,34 +486,74 @@ export async function urlDaFotoRegistrada(clientUuid) {
 // da fila quando tudo passou. Cada etapa marca progresso no próprio
 // item, para que a retentativa não refaça o que já deu certo.
 //
-// Trava de reentrancia. Duas drenagens concorrentes liam a MESMA fila e
-// passavam as duas pelo addHistory, gravando o evento em dobro em
-// ti_os_history. Nao era duplo clique: sao dois CHAMADORES diferentes — a
-// tela da OS ao registrar, e o app do tecnico ao reconectar — que podem se
-// cruzar sem nenhum toque a mais.
+// Trava de reentrância: as drenagens são SERIALIZADAS, e cada chamador roda a
+// SUA.
 //
-// O lock e de MODULO, nunca estado de React: estado de componente e por
-// arvore, e os dois chamadores vivem em componentes diferentes. Guardar a
-// PROMESSA em curso, e nao um booleano, faz o segundo chamador esperar o
-// resultado do primeiro em vez de receber um resultado vazio e concluir que
-// a fila estava limpa.
+// A primeira versão desta trava devolvia a MESMA promessa ao segundo chamador.
+// Parecia certo — ninguém drena duas vezes — e escondia um defeito grave, que
+// derrubou a OS-TI-2026-0012 em produção:
 //
-// O aoProgredir do segundo chamador e ignorado de proposito: quem drena e o
-// primeiro, e progresso de uma drenagem que nao e sua seria mentira na tela.
-let drenagemEmCurso = null
+//   a drenagem em curso tirou o retrato da fila (listarFila, logo abaixo)
+//   ANTES de o item do segundo chamador existir. Ela NUNCA o processa. Mas
+//   resolve com sucesso, e o segundo chamador recebe esse sucesso como se
+//   fosse dele.
+//
+// Na tela: o técnico toca "Preciso de material", a fila grava o item, a tela
+// diz "Pedido enviado", o botão destrava — e nada saiu do aparelho. Sem erro e
+// sem dado. E não precisa de azar: basta existir uma drenagem em curso no
+// instante do toque, o que um item preso no topo da fila garante, porque toda
+// drenagem começa tentando subir a foto dele.
+//
+// Agora cada chamador ESPERA a anterior e então roda a própria drenagem, com
+// retrato novo — então o item dele está sempre no retrato. Continua não havendo
+// duas drenagens ao mesmo tempo, que era o motivo original da trava: o
+// histórico gravado em dobro em ti_os_history.
+//
+// `cadeia` guarda a versão que NUNCA rejeita. Falha de um chamador não pode
+// travar os próximos, nem virar unhandled rejection de quem só estava na fila
+// atrás dele.
+//
+// O que impede a cadeia de entupir é o TIMEOUT_UPLOAD_MS lá em cima: sem um
+// teto por foto, uma requisição pendurada bloquearia todos os chamadores
+// seguintes — que é a forma como esta trava poderia matar a fila inteira.
+let cadeia = Promise.resolve()
 
-export async function drenarFila(aoProgredir = () => {}) {
-  if (drenagemEmCurso) return drenagemEmCurso
-  drenagemEmCurso = drenar(aoProgredir)
-  try { return await drenagemEmCurso }
-  finally { drenagemEmCurso = null }
+export function drenarFila(aoProgredir = () => {}, { forcar = false } = {}) {
+  const minha = cadeia.then(
+    () => drenar(aoProgredir, forcar),
+    () => drenar(aoProgredir, forcar)
+  )
+  cadeia = minha.then(() => {}, () => {})
+  return minha
 }
 
-async function drenar(aoProgredir) {
+// Espera crescente por item que falhou: 15s, 30s, 1min, 2min, teto de 5min.
+//
+// É o que impede um item preso de entupir os outros AGORA QUE AS DRENAGENS SÃO
+// SERIALIZADAS. Sem isso, toda ação do técnico esperaria o item do topo esgotar
+// o TIMEOUT_UPLOAD_MS antes de a dele ser tentada — o mesmo entupimento de
+// antes, trocando "resultado errado" por "45 segundos de espera a cada toque".
+//
+// O item NÃO é abandonado: ele volta na drenagem seguinte que estiver fora da
+// espera. E "Tentar enviar agora" passa por cima, porque quando o técnico toca
+// no botão a pergunta dele é sobre AGORA e a resposta tem de ser sobre agora.
+function esperandoBackoff(item) {
+  const t = item.tentativas || 0
+  if (t === 0 || !item.ultimaTentativaEm) return false
+  const espera = Math.min(5 * 60 * 1000, 15 * 1000 * Math.pow(2, t - 1))
+  return Date.now() - new Date(item.ultimaTentativaEm).getTime() < espera
+}
+
+async function drenar(aoProgredir, forcar = false) {
   const itens = await listarFila()
-  const resultado = { enviados: 0, falhas: 0, restantes: 0 }
+  // `erros` existe para a tela ter O MOTIVO, e não só a contagem. Gravar o erro
+  // no item e não devolvê-lo fazia a tela dizer "guardado, envia depois" — a
+  // mensagem tranquilizadora — enquanto o mesmo erro se repetia a cada minuto.
+  const resultado = { enviados: 0, falhas: 0, restantes: 0, adiados: 0, erros: [] }
 
   for (const item of itens) {
+    if (!forcar && esperandoBackoff(item)) { resultado.adiados++; continue }
+
     try {
       for (const foto of item.fotos) {
         if (foto.enviada) continue
@@ -555,8 +622,15 @@ async function drenar(aoProgredir) {
     } catch (e) {
       item.tentativas = (item.tentativas || 0) + 1
       item.ultimoErro = e.message
+      item.ultimaTentativaEm = new Date().toISOString()
       await salvarItem(item)
       resultado.falhas++
+      resultado.erros.push({
+        id:         item.id,
+        osNumero:   item.osNumero,
+        tentativas: item.tentativas,
+        erro:       e.message,
+      })
     }
     aoProgredir(resultado)
   }
