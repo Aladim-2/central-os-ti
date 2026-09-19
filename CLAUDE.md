@@ -147,13 +147,26 @@ upload **depois** da exclusão faz cada retentativa gravar um arquivo novo no
 drenar, conferir fila zerada, só então excluir. Detalhe em `docs/app-tecnico.md`
 §8.
 
-**Upload de foto da TI quebrado — EM ABERTO, causa não identificada.** Desde
-13/09/2026: `ti_os_photos` vazia, toda transição com foto presa na fila, e a
-única que passou foi o aceite, que não exige foto. Eliminado: token ausente no
-build (está no bundle, 64 chars). Falta testar, e só fecha com o teste: campo
-desconhecido no multipart, disciplina `ti` não liberada, ou token sem escopo de
-`ti`. O erro exato está em `ultimoErro` no IndexedDB do aparelho — e desde
-13/09 aparece na tela, ver abaixo.
+**Upload de foto da TI quebrado — CAUSA IDENTIFICADA em 13/09/2026, conserto
+pendente.** O `VITE_MEDIA_UPLOAD_TOKEN` que a **Vercel** usa no build (64 chars)
+**não é** o que o `media.aladim.digital` aceita (o do `.env` local, 34 chars,
+testado e aceito). Como o servidor faz auth antes do parser, todo upload do app
+publicado volta 401 antes de tocar no arquivo. Explica `ti_os_photos` vazia,
+toda transição com foto presa, e o aceite ter passado — ele não exige foto e
+nunca fala com o servidor de mídia.
+
+Eliminados por medição, não por descarte: token ausente no build; `midia-api`
+rejeitando `client_uuid` no multipart; disciplina `ti` não liberada. Ver
+`docs/app-tecnico.md` §4 e §9.
+
+**Conserto:** trocar a variável na Vercel e redeployar. Não é código. **Ordem:**
+consertar → Ruan abre o app e pega o bundle novo → fila drena → conferir
+`ti_os_photos` e `ti_os_history` → só então a OS pode ser excluída.
+
+**E fica aberto o que produziu isto:** nada compara as duas cópias do token
+(`.env` local e variável da Vercel). Divergiram sem sinal nenhum e vão divergir
+de novo. O valor também é advinhável — padrão legível terminando em
+"temporario" — e entra na frente de rotação junto do `media-delete`.
 
 **Notificação por WhatsApp da TI — executada em 13/09/2026, falta o
 último passo.** `WEBHOOK_TOKEN_TI` definido no VPS; `/webhook/nova-os-ti`

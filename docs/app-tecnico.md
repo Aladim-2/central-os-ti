@@ -170,8 +170,21 @@ anterior chegou até o insert; o que sobra é essa janela estreita. As ocorrênc
 ficam registradas no store `arquivos_orfaos` do IndexedDB, para existir o que
 limpar quando a v2 entrar.
 
-**Pendência que não é do cliente:** confirmar que o handler atual do `midia-api`
-não rejeita campo desconhecido no multipart.
+**Pendência que não é do cliente — ✅ RESOLVIDA em 2026-09-13.** O `midia-api`
+**aceita** campo desconhecido no multipart. Medido, sem gravar arquivo: dois POST
+autenticados sem foto, um com `client_uuid` e outro sem, devolveram resposta
+idêntica — `{"erro":"arquivo ausente"}`, HTTP 400. Campo de texto extra passa; o
+parser só reclamou do que faltava de verdade.
+
+O teste também derrubou, de graça, a hipótese de a disciplina `ti` não estar
+liberada: a URL do teste era `/upload/ti/...` e chegou até a validação de
+arquivo.
+
+**A técnica vale mais que o resultado:** a pergunta era sobre o *parser de
+campos*, e o arquivo não fazia parte da pergunta — carregá-lo era só o hábito de
+reencenar o caso real. Tirado o arquivo, o teste virou seguro contra produção.
+E sem o controle (o POST sem o campo) um 400 sozinho não distinguiria "rejeitou o
+campo" de "faltou o arquivo".
 
 ---
 
@@ -278,3 +291,56 @@ conferir que a fila zerou, e só então excluir.
 A idempotência do `client_uuid` protege contra **duplicar linha**. Ela não
 protege contra **destino que deixou de existir** — são riscos diferentes, e a
 guarda de um não cobre o outro.
+
+---
+
+## 9. ✅ A causa do upload quebrado: token divergente entre a Vercel e o servidor
+
+Fechada em 2026-09-13 por eliminação, e cada eliminação foi medida.
+
+| Hipótese | Como caiu |
+|---|---|
+| `VITE_MEDIA_UPLOAD_TOKEN` ausente no build | bundle de produção traz um literal de 64 chars, não `undefined` |
+| `midia-api` rejeita `client_uuid` no multipart | com e sem o campo devolvem resposta idêntica (§4) |
+| disciplina `ti` não liberada | POST em `/upload/ti/...` passa da autenticação (§4) |
+| **token da Vercel ≠ token que o servidor aceita** | **única de pé** |
+
+O que sustenta:
+
+- o token do `.env` local tem **34** caracteres e o servidor **o aceita** — o
+  teste do §4 passou da autenticação
+- o token no bundle em produção tem **64** caracteres
+- o `media.aladim.digital` faz **auth antes do parser**: POST sem token válido
+  devolve 401 qualquer que seja o corpo
+
+Logo, todo upload vindo do app publicado leva um token que o servidor recusa, e
+volta 401 antes de tocar no arquivo.
+
+**O que isso explica, sem sobrar nada:** `ti_os_photos` vazia; toda transição com
+foto presa na fila; e a única que passou sendo o aceite, que não exige foto e
+por isso nunca fala com o servidor de mídia.
+
+**Conserto: trocar a variável de ambiente na Vercel e redeployar.** Não é
+mudança de código.
+
+### Duas lições
+
+**O suspeito mais provável era o errado.** A pendência do `client_uuid` estava
+escrita, tinha nome e vinha sendo apontada como causa. Ela se sustentava por ser
+a única coisa **anotada** como não testada — e não por evidência. A causa real
+não tinha nome porque ninguém suspeitava dela: duas cópias da mesma variável em
+lugares diferentes, sem nada que compare as duas.
+
+**O grupo de controle estava nos dados desde o começo.** Quatro itens presos e um
+que passou; o que passou era o único sem foto. Isso já apontava a etapa de
+upload antes de qualquer acesso a servidor. Num pipeline de N etapas, itens que
+exercitam subconjuntos diferentes formam um experimento natural — "o que passou"
+não é consolo, é o controle.
+
+### Ficam em aberto, e não são pequenos
+
+- **Nada compara as duas cópias do token.** `.env` local e variável da Vercel
+  divergiram sem produzir sinal nenhum. Vai divergir de novo.
+- **O valor é advinhável** — padrão legível terminando em "temporario". Como é
+  público por desenho, quem o adivinha sobe arquivo para o servidor de mídia.
+  Assunto da frente de rotação, junto do `media-delete`.
