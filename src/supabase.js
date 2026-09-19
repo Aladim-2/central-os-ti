@@ -458,7 +458,31 @@ export async function urlDaFotoRegistrada(clientUuid) {
 // Por item, nesta ordem: foto(s) primeiro, status depois. Só remove
 // da fila quando tudo passou. Cada etapa marca progresso no próprio
 // item, para que a retentativa não refaça o que já deu certo.
+//
+// Trava de reentrancia. Duas drenagens concorrentes liam a MESMA fila e
+// passavam as duas pelo addHistory, gravando o evento em dobro em
+// ti_os_history. Nao era duplo clique: sao dois CHAMADORES diferentes — a
+// tela da OS ao registrar, e o app do tecnico ao reconectar — que podem se
+// cruzar sem nenhum toque a mais.
+//
+// O lock e de MODULO, nunca estado de React: estado de componente e por
+// arvore, e os dois chamadores vivem em componentes diferentes. Guardar a
+// PROMESSA em curso, e nao um booleano, faz o segundo chamador esperar o
+// resultado do primeiro em vez de receber um resultado vazio e concluir que
+// a fila estava limpa.
+//
+// O aoProgredir do segundo chamador e ignorado de proposito: quem drena e o
+// primeiro, e progresso de uma drenagem que nao e sua seria mentira na tela.
+let drenagemEmCurso = null
+
 export async function drenarFila(aoProgredir = () => {}) {
+  if (drenagemEmCurso) return drenagemEmCurso
+  drenagemEmCurso = drenar(aoProgredir)
+  try { return await drenagemEmCurso }
+  finally { drenagemEmCurso = null }
+}
+
+async function drenar(aoProgredir) {
   const itens = await listarFila()
   const resultado = { enviados: 0, falhas: 0, restantes: 0 }
 
@@ -1258,7 +1282,12 @@ export function materiaisDoRelatorio(os) {
   const bruto = Array.isArray(os?.materials_used) ? os.materials_used : []
   return bruto.map(m => ({
     item:       m?.item || m?.descricao || m?.description || '—',
-    quantidade: m?.quantidade ?? m?.qtd ?? m?.quantity ?? '—',
+    // qty e a chave de materials_needed, nao de materials_used. Entra aqui
+    // como rede de seguranca: o pre-preenchimento da conclusao copia da lista
+    // de material SOLICITADO, e quem copiar o objeto em vez de mapear traria
+    // qty. Sem esta linha a Quantidade sairia '—' no PDF, na folha e dentro
+    // do hash, sem erro e sem aviso. Fica por ULTIMO: e rede, nao contrato.
+    quantidade: m?.quantidade ?? m?.qtd ?? m?.quantity ?? m?.qty ?? '—',
     unidade:    m?.unidade || m?.unit || m?.un || 'un',
   }))
 }
