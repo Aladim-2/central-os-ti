@@ -27,6 +27,15 @@ import Versao from '../../Versao'
 const AZUL   = '#1D4ED8'
 const ESCURO = '#1E3A8A'
 
+// 44px e o minimo de alvo de toque (WCAG 2.5.5, Apple HIG; Material pede
+// 48). Os botoes antigos tinham ~24 - fontSize 16 mais padding 4 - e
+// ficavam encostados um no outro, onde um erro de toque desloga.
+const BOTAO_CONTA = {
+  display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+  gap:3, minWidth:76, minHeight:44, padding:'6px 14px',
+  borderRadius:10, borderWidth:'0.5px', borderStyle:'solid', cursor:'pointer'
+}
+
 function fmtPrazo(iso) {
   if (!iso) return '—'
   return new Date(iso).toLocaleString('pt-BR', {
@@ -179,11 +188,51 @@ export default function TecnicoApp({ profile }) {
         }}>
           {profile.initials || '??'}
         </span>
-        <button onClick={() => { setSelOS(null); setVerSenha(true) }} title="Trocar senha"
-          style={{ background:'none', border:'none', cursor:'pointer', fontSize:16, padding:4 }}>🔑</button>
-        <button onClick={signOut} title="Sair"
-          style={{ background:'none', border:'none', cursor:'pointer', fontSize:16, padding:4 }}>🚪</button>
       </div>
+    </div>
+  )
+
+  // Rodape: os dois controles de conta, com rotulo visivel.
+  //
+  // Antes viviam no cabecalho como emoji sem texto, e o rotulo so existia
+  // em `title` - que e tooltip de HOVER, e hover nao existe em toque. No
+  // desktop o mouse revelava "Trocar senha"; no celular eram dois desenhos
+  // mudos. A mesma tela funcionando para quem tem mouse e falhando para
+  // quem esta em campo.
+  //
+  // Desce para o rodape por tres motivos: fica longe do polegar em uso
+  // normal, nao disputa largura com as pilhas de estado do cabecalho (que
+  // podem ser tres ao mesmo tempo: sem internet, fila pendente, iniciais),
+  // e da espaco para alvo de 44px com rotulo.
+  //
+  // Sair e destrutivo e passa a parecer destrutivo: vermelho, contra o azul
+  // neutro do outro. Antes os dois tinham o mesmo peso visual.
+  const Rodape = (
+    <div style={{
+      borderTop:'0.5px solid #e5e3dc', marginTop:'1.5rem',
+      padding:'12px 16px calc(12px + env(safe-area-inset-bottom))'
+    }}>
+      <div style={{ display:'flex', justifyContent:'center', gap:12 }}>
+        {/* Na propria tela de troca de senha o botao seria um controle
+            morto: leva para onde ja se esta. */}
+        {!verSenha && (
+          <button onClick={() => { setSelOS(null); setVerSenha(true) }}
+            style={{ ...BOTAO_CONTA, color:ESCURO, borderColor:'#DBEAFE', background:'#F8FAFF' }}>
+            <span style={{ fontSize:18, lineHeight:1 }}>🔑</span>
+            <span style={{ fontSize:11, fontWeight:600 }}>Senha</span>
+          </button>
+        )}
+        <button onClick={signOut}
+          style={{ ...BOTAO_CONTA, color:'#991B1B', borderColor:'#FCA5A5', background:'#FEF2F2' }}>
+          <span style={{ fontSize:18, lineHeight:1 }}>🚪</span>
+          <span style={{ fontSize:11, fontWeight:600 }}>Sair</span>
+        </button>
+      </div>
+
+      {/* O tecnico e quem mais fica preso numa versao velha: e ele que
+          instala o app e some para o campo. Aqui ele consegue dizer em
+          que versao esta, sem precisar do DevTools. */}
+      <Versao style={{ textAlign:'center', padding:'.9rem 0 .2rem' }} />
     </div>
   )
 
@@ -194,6 +243,7 @@ export default function TecnicoApp({ profile }) {
         <div style={{ padding:'1rem' }}>
           <TrocarSenha profile={profile} onVoltar={() => setVerSenha(false)} />
         </div>
+        {Rodape}
       </div>
     )
   }
@@ -206,6 +256,7 @@ export default function TecnicoApp({ profile }) {
           <OSExec os={selOS} profile={profile}
             onAplicado={aplicarLocal} onVoltar={() => setSelOS(null)} />
         </div>
+        {Rodape}
       </div>
     )
   }
@@ -348,11 +399,8 @@ export default function TecnicoApp({ profile }) {
           </>
         )}
 
-        {/* O tecnico e quem mais fica preso numa versao velha: e ele que
-            instala o app e some para o campo. Aqui ele consegue dizer em
-            que versao esta, sem precisar do DevTools. */}
-        <Versao style={{ textAlign: 'center', padding: '1.2rem 0 .5rem' }} />
       </div>
+      {Rodape}
     </div>
   )
 }
