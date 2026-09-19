@@ -341,7 +341,8 @@ export default function Dashboard({ osList, onOpen, onNew, onUpdated, profile })
       'Confirmar entrega de TODOS os materiais do chamado ' + os.numero + '?\n\n' +
       '✓ ' + baixar.length + ' item(ns) com baixa automática no estoque de TI' +
       resumoSemBaixa +
-      '\n\nApós confirmar, o chamado passa para "Em execução".'
+      '\n\nO chamado CONTINUA em "' + (STATUS[os.status]?.nome || os.status) + '". ' +
+      'Quem move para "Em execução" é o técnico, com a foto do material recebido.'
     )) return
 
     setProcessingId(os.id)
@@ -428,12 +429,20 @@ export default function Dashboard({ osList, onOpen, onNew, onUpdated, profile })
         return upd ? { ...i, quantity: upd.quantity } : i
       }))
 
-      // 'Material entregue' e texto de historico, nao status. O
-      // ti_orders_status_check so aceita recebida, vistoria,
-      // aguardando, execucao, concluida, cancelada.
+      // A ENTREGA NAO MOVE O STATUS. Quem move aguardando -> execucao e o
+      // tecnico, e esse caminho exige a foto do material recebido
+      // (FOTO_AO_SAIR.aguardando = 'material'). Mover daqui pulava a foto: a OS
+      // aparecia em execucao sem nenhum comprovante de que o material chegou as
+      // maos de alguem. Comprovante de entrega e a primeira peca que se pede
+      // quando material publico some, e ela sumia justamente no despacho.
+      //
+      // O addHistory FICA. 'Material entregue' e texto livre em
+      // ti_os_history.status -- nao e status de OS, e o ti_orders_status_check
+      // so aceita recebida, vistoria, aguardando, execucao, concluida,
+      // cancelada. E essa linha que registra o despacho, e e ela que continua
+      // provando a entrega com a OS parada em aguardando.
       const updates = { materials_needed: matsAtualizados }
       if (os.status === 'aguardando') {
-        updates.status = 'execucao'
         await addHistory(os.id, 'Material entregue', profile?.name || 'Central de TI', profile?.id)
       }
 
@@ -443,6 +452,7 @@ export default function Dashboard({ osList, onOpen, onNew, onUpdated, profile })
       let msg = '✓ Entrega confirmada para ' + os.numero
       if (baixados > 0) msg += ' — ' + baixados + ' item(ns) baixado(s) no estoque'
       if (avisos > 0)   msg += ' · ⚠ ' + avisos + ' sem baixa'
+      if (os.status === 'aguardando') msg += ' · o chamado segue em Aguardando material até o técnico registrar a foto'
       showToast(avisos > 0 ? 'warning' : 'success', msg)
       setMatOS(null)
       cancelarEdicao()

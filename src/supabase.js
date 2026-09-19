@@ -1278,6 +1278,32 @@ export function ordenarFotosDoRelatorio(photos) {
   })
 }
 
+// Prefixo fixo da justificativa de conclusão sem foto. Mora aqui, exportado,
+// porque quem ESCREVE (o app do técnico, pela RPC ti_append_observacao) e quem
+// eventualmente for LER a trilha precisam da mesma string literal. Prefixo
+// divergente não dá erro: dá uma linha em observations que ninguém reconhece.
+//
+// A justificativa vai para observations e NÃO para
+// relatorio_justificativa_sem_foto: aquela coluna é o ato do GESTOR, escrito
+// por validarRelatorio. Dois fatos diferentes na mesma coluna é ambiguidade em
+// peça de auditoria, e o gestor sobrescreveria o técnico sem aviso.
+export const PREFIXO_SEM_FOTO = 'Conclusão sem foto: '
+
+// relatorio_texto é o BRUTO dos dois campos, com rótulo. É a entrada da função
+// de IA que virá depois — ela reescreve problema e serviço a partir daqui, sem
+// depender das colunas já redigidas. Um montador só, usado pelo app do técnico
+// e pela folha do gestor: se cada um formatasse do seu jeito, a IA receberia
+// dois formatos para o mesmo fato.
+export function montarRelatorioTexto(problema, servico) {
+  const p = String(problema || '').trim()
+  const s = String(servico  || '').trim()
+  if (!p && !s) return null
+  return [
+    p ? 'Problema encontrado:\n' + p : null,
+    s ? 'Serviço executado:\n'  + s : null,
+  ].filter(Boolean).join('\n\n')
+}
+
 export function materiaisDoRelatorio(os) {
   const bruto = Array.isArray(os?.materials_used) ? os.materials_used : []
   return bruto.map(m => ({
@@ -1324,23 +1350,26 @@ export async function calcularHashRelatorio(os, justificativaSemFoto = null) {
     .slice(0, 12)
 }
 
-// Salva as seções 1 e 2 redigidas pelo gestor. Quando as duas ficam
-// preenchidas e o relatório ainda é rascunho, ele passa a aguardar
-// validação — é o estado "tem conteúdo, falta assinatura", e é o que o
-// contador da barra lateral mostra.
+// Salva as seções 1 e 2 redigidas pelo gestor. CONTEÚDO, e só conteúdo.
+//
+// A promoção de rascunho para aguardando_validacao SAIU daqui e virou o
+// gatilho trg_ti_relatorio_promover, BEFORE INSERT OR UPDATE em ti_orders.
+// O motivo é que existe um segundo escritor: o app do técnico, que grava os
+// mesmos campos pelo extra da fila offline, num update que não passa por esta
+// função. Com a regra no cliente, ou ela era replicada nos dois — duas cópias
+// de uma regra de estado, que divergem — ou o relatório escrito em campo
+// nascia em rascunho e nunca aparecia para o gestor validar.
+//
+// O valor de retorno continua correto sem nenhuma releitura: updateOS termina
+// em .select(), que é UPDATE ... RETURNING, e RETURNING devolve a linha JÁ
+// modificada pelos gatilhos BEFORE. Quem chama recebe o relatorio_status
+// promovido no mesmo objeto que recebia antes.
 export async function salvarTextoRelatorio(os, { problema, servico }) {
-  const updates = {
+  return updateOS(os.id, {
     relatorio_problema: problema?.trim() || null,
     relatorio_servico:  servico?.trim() || null,
-  }
-
-  const completo = Boolean(updates.relatorio_problema && updates.relatorio_servico)
-  if (completo && os.relatorio_status === 'rascunho') {
-    updates.relatorio_status    = 'aguardando_validacao'
-    updates.relatorio_emitido_em = new Date().toISOString()
-  }
-
-  return updateOS(os.id, updates)
+    relatorio_texto:    montarRelatorioTexto(problema, servico),
+  })
 }
 
 // Validação. O .eq no status é trava de corrida, e o .select() é o que

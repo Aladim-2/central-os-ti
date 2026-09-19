@@ -260,6 +260,23 @@ carregamento da página, e app instalado que fica dias aberto nunca checa.
 - `index.html:7` usa `apple-mobile-web-app-capable`, depreciado; o console
   pede `mobile-web-app-capable` junto.
 
+**`trg_ti_relatorio_promover` promove de novo depois de uma devolução — edge
+conhecido e aceito.** O gatilho (BEFORE INSERT OR UPDATE em `ti_orders`) leva
+`relatorio_status` de `rascunho` para `aguardando_validacao` quando problema e
+serviço estão os dois preenchidos. Ele exige `old.relatorio_status = 'rascunho'`
+de propósito: quando existir devolução para correção
+(`aguardando_validacao` → `rascunho`), o gatilho não desfaz a devolução no
+mesmo UPDATE. **Mas o update SEGUINTE, qualquer um, com o conteúdo ainda
+preenchido, promove de novo** — e o conteúdo continua preenchido justamente
+porque é ele que está em correção. Na prática a devolução dura até a próxima
+escrita na linha. Revisitar quando o fluxo de devolução for construído; hoje ele
+não existe, e por isso o edge não morde.
+
+A promoção mora no banco, e não no cliente, porque há DOIS escritores dos mesmos
+campos: a folha do gestor (`salvarTextoRelatorio`) e o app do técnico, que grava
+pelo `extra` da fila offline sem passar por aquela função. Regra de estado em
+duas cópias diverge; em uma cópia, no banco, não tem como divergir.
+
 **A construir:** Relatórios, Usuários, histórico por escola, e a
 **solicitação de material pelo técnico** — conferido em 13/09/2026 que não
 existe: sem tela, e `materials_needed` sem nenhum escritor no código. O Valter
