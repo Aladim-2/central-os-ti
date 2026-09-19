@@ -74,6 +74,22 @@ export default function TecnicoApp({ profile }) {
     try {
       const orders = await fetchOS(profile.id, 'tecnico_ti')
       setOsList(orders)
+
+      // A OS ABERTA tambem, e nao so a lista.
+      //
+      // O Realtime ja existia e ja chamava carregar() a cada mudanca em
+      // ti_orders. Mas carregar() so trocava o osList: quem estava com a OS
+      // aberta ficava preso ao selOS de quando entrou. Na pratica, o tecnico
+      // esperando material via "aguardando liberacao" mesmo depois de a central
+      // confirmar a entrega -- o dado chegava ao aparelho e morria na lista.
+      // Sair e entrar de novo resolvia, o que e o tipo de gesto que ninguem
+      // descobre sozinho.
+      //
+      // O estado otimista do aplicarLocal nao e atropelado: carregar() so roda
+      // depois de drenagem COM envio, ou por evento do Realtime. Nenhum dos
+      // dois acontece sem rede -- que e exatamente quando o otimismo esta
+      // sozinho e o servidor ainda nao sabe da transicao.
+      setSelOS(prev => prev ? (orders.find(o => o.id === prev.id) || prev) : prev)
     } catch (e) {
       console.error('Erro ao carregar chamados:', e)
     } finally { setLoading(false) }
@@ -156,6 +172,38 @@ export default function TecnicoApp({ profile }) {
     setSelOS(prev => prev && prev.id === atualizada.id ? { ...prev, ...atualizada } : prev)
     atualizarPendentes()
   }
+
+  // Skeleton no lugar do spinner.
+  //
+  // Um spinner centralizado diz "espere" e nada mais. O skeleton diz o que vem:
+  // uma saudacao, uma contagem, e uma pilha de cartoes de chamado. Em rede de
+  // escola a diferenca nao e estetica -- o tecnico ve a forma da tela antes do
+  // conteudo e para de se perguntar se o app travou.
+  //
+  // Os cartoes entram com atraso escalonado para o olho ler como carregamento
+  // em curso, nao como tela congelada.
+  const Skeleton = (
+    <div aria-busy="true" aria-label="Carregando seus chamados">
+      <style>{'@keyframes pulso-ti{0%,100%{opacity:.5}50%{opacity:.85}}'}</style>
+      <div style={{ height:12, width:'40%', borderRadius:6, background:'#e8e6df', marginBottom:10, animation:'pulso-ti 1.4s ease-in-out infinite' }} />
+      <div style={{ height:12, width:'65%', borderRadius:6, background:'#e8e6df', marginBottom:20, animation:'pulso-ti 1.4s ease-in-out infinite' }} />
+      {[0, 1, 2].map(i => (
+        <div key={i} style={{
+          background:'#fff', border:'0.5px solid #e5e3dc', borderRadius:10,
+          borderLeft:'4px solid #e8e6df', padding:'14px', marginBottom:10,
+          animation:'pulso-ti 1.4s ease-in-out infinite', animationDelay: (i * 0.15) + 's'
+        }}>
+          <div style={{ display:'flex', gap:8, marginBottom:10 }}>
+            <div style={{ height:11, width:110, borderRadius:5, background:'#e8e6df' }} />
+            <div style={{ height:11, width:70,  borderRadius:9, background:'#eeece5' }} />
+          </div>
+          <div style={{ height:13, width:'75%', borderRadius:5, background:'#e8e6df', marginBottom:8 }} />
+          <div style={{ height:10, width:'55%', borderRadius:5, background:'#eeece5', marginBottom:6 }} />
+          <div style={{ height:10, width:'35%', borderRadius:5, background:'#eeece5' }} />
+        </div>
+      ))}
+    </div>
+  )
 
   const ativas    = osList.filter(o => !['concluida','cancelada'].includes(o.status))
   const encerradas = osList.filter(o =>  ['concluida','cancelada'].includes(o.status))
@@ -266,11 +314,7 @@ export default function TecnicoApp({ profile }) {
       {Cabecalho}
 
       <div style={{ padding:'1rem' }}>
-        {loading && (
-          <div style={{ display:'flex', justifyContent:'center', padding:'3rem' }}>
-            <div className="spinner" style={{ width:32, height:32 }} />
-          </div>
-        )}
+        {loading && Skeleton}
 
         {!loading && (
           <>
