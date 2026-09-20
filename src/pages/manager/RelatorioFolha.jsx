@@ -198,7 +198,9 @@ export default function RelatorioFolha({ os, profile, onVoltar, onAtualizado }) 
     }
     setOcupado('validando'); setErro(''); setAviso('')
     try {
-      const atualizada = await validarRelatorio(os, profile.id, semFoto ? justificativa.trim() : null)
+      // Perfil inteiro, não só o id: validarRelatorio grava o NOME junto, para
+      // a peça não depender do cadastro de amanhã para dizer quem validou hoje.
+      const atualizada = await validarRelatorio(os, profile, semFoto ? justificativa.trim() : null)
       onAtualizado?.(atualizada)
       setPedindoJustificativa(false)
     } catch (e) {
