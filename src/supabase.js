@@ -1449,7 +1449,19 @@ export async function salvarTextoRelatorio(os, { problema, servico }) {
 // Validação. O .eq no status é trava de corrida, e o .select() é o que
 // revela se ela agiu: sem ele, um UPDATE que não alcançou linha nenhuma
 // volta com error nulo e a tela diria "validado" sem ter validado.
-export async function validarRelatorio(os, gestorId, justificativaSemFoto = null) {
+//
+// Recebe o PERFIL do gestor, não só o id. Id e nome são o mesmo fato — quem
+// validou — e passá-los como dois parâmetros soltos abriria a porta para
+// gravar o id de um com o nome de outro, sem nada acusar.
+//
+// O NOME É GRAVADO, não resolvido por junção na hora de imprimir. O nome que
+// vai na peça de auditoria é o nome NA DATA DA VALIDAÇÃO: um relatório
+// validado em 2026 tem que continuar imprimindo o mesmo nome em 2028, mesmo
+// que a pessoa troque de sobrenome, mude de cargo ou saia do quadro. Junção
+// com profiles daria a versão de hoje do cadastro para um fato de ontem. É o
+// mesmo princípio do hash — carimbar o estado no instante do aceite —
+// aplicado ao nome de quem aceitou.
+export async function validarRelatorio(os, gestor, justificativaSemFoto = null) {
   const hash = await calcularHashRelatorio(os, justificativaSemFoto)
 
   const { data, error } = await supabase
@@ -1459,7 +1471,11 @@ export async function validarRelatorio(os, gestorId, justificativaSemFoto = null
       relatorio_hash:                   hash,
       relatorio_payload:                payloadRelatorio(os, justificativaSemFoto),
       relatorio_justificativa_sem_foto: justificativaSemFoto,
-      relatorio_validado_por:           gestorId,
+      relatorio_validado_por:           gestor?.id ?? null,
+      // Sem nome no perfil grava null, nunca string vazia: null é "não
+      // registrado" e o documento cai no travessão; '' passaria por nome
+      // gravado e imprimiria um branco no lugar da responsabilidade.
+      relatorio_validado_por_nome:      String(gestor?.name || '').trim() || null,
       relatorio_validado_em:            new Date().toISOString(),
     })
     .eq('id', os.id)

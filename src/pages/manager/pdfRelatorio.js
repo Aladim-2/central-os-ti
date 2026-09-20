@@ -27,16 +27,16 @@
 
 import pdfMakeImportado from 'pdfmake/build/pdfmake'
 import { vfsPlex } from './relatorios/fontes/vfsPlex'
-import { BRASAO_BASE64 } from './relatorios/marca'
+import { BRASAO_ITABUNA, BRASAO_RATIO } from './relatorios/marca.js'
 import {
   ordenarFotosDoRelatorio, materiaisDoRelatorio, LABEL_ETAPA_FOTO,
 } from '../../supabase'
 import {
-  ORGAO, METADADO, CAMPOS_IDENTIFICACAO, valorDoCampo, SECOES, COLUNAS_MATERIAIS,
+  ORGAO, TIMBRE_PDF, METADADO, CAMPOS_IDENTIFICACAO, valorDoCampo, SECOES, COLUNAS_MATERIAIS,
   TARJA_MINUTA, RODAPE, FIGURA_INDISPONIVEL, PREFIXO_JUSTIFICATIVA,
   VALIDACAO, hashEmDuasLinhas, validadorNome,
-  TECNICO_EXECUTANTE, assinaturaTecnicoNome, CIENCIA,
-  legendaFigura, coordenadaFigura, assinaturaNome, assinaturaCargo,
+  TECNICO_EXECUTANTE, assinaturaTecnicoNome, VALIDACAO_TECNICA_TI, CIENCIA,
+  legendaFigura, coordenadaFigura,
   nomeArquivoPdf, maiuscula,
 } from './documento'
 import { dataHora } from '../../lib/datas'
@@ -63,16 +63,40 @@ const pdfMake = pdfMakeImportado?.createPdf
 
 const MM = 2.8346
 
-const MARGENS = [51, 57, 51, 45]   // 18 / 20 / 18 / 16 mm
+// A inferior subiu de 16 para 20 mm quando a linha de crédito entrou no
+// rodapé. O pdfmake desenha o rodapé a partir de `pageHeight - margem
+// inferior` e NÃO o encolhe para caber: rodapé mais alto que a margem não
+// invade o texto — ele passa da borda do papel e some na impressão, sem que
+// nada apareça na tela. Com três linhas (emissão, tarja de minuta e crédito)
+// os 16 mm ficavam 0,2 pt negativos.
+//
+// 18 mm faziam a conta fechar, mas deixavam só 2 mm até a borda na minuta —
+// dentro da zona não imprimível de impressora comum, que fica em torno de
+// 4 mm. A última linha sairia cortada no papel e inteira na tela, que é o
+// pior dos dois mundos: o defeito só apareceria no documento já entregue.
+const MARGENS = [51, 57, 51, 57]   // 18 / 20 / 18 / 20 mm
 const LARGURA_UTIL = 595.28 - MARGENS[0] - MARGENS[2]   // 493,28 pt
 
 // ── Cabeçalho ────────────────────────────────────────────────
 
-const BRASAO_ALTURA = Math.round(18 * MM)          // 51 pt
-// "Respiro de meia altura do brasão": a distância entre o brasão e o bloco de
-// texto é metade da altura dele. Vale como proporção, não como número solto —
-// trocar a altura do brasão reacerta o respiro sozinho.
-const BRASAO_RESPIRO = BRASAO_ALTURA / 2
+const BRASAO_ALTURA = Math.round(22 * MM)          // 62 pt
+// A largura vem da proporção do arquivo, não de um número escrito à mão:
+// trocar o brasão por um de outra proporção reacerta a caixa sozinho, em vez
+// de achatar a imagem contra uma largura que ninguém lembra de atualizar.
+const BRASAO_LARGURA = Math.round(BRASAO_ALTURA * BRASAO_RATIO)   // 66 pt
+
+// O pdfmake NÃO tem alinhamento vertical em célula de tabela — todo conteúdo
+// encosta no topo. Centrar contra o brasão é conta de recuo: metade da sobra
+// entre a altura do brasão e a altura estimada do texto da coluna.
+//
+// As alturas são ESTIMATIVAS (corpo × lineHeight 1.35 do defaultStyle, mais
+// as margens entre linhas), não medidas: quem mede de verdade é o pdfmake, e
+// só depois de paginar. Errar por 2 ou 3 pt aqui não se vê; o que se vê é
+// texto colado na borda de cima, que é o que acontece sem recuo nenhum.
+const ALTURA_TIMBRE = 46    // 3 linhas (10 / 9 / 8 pt), a última podendo dobrar
+const ALTURA_RT     = 21    // 2 linhas de 7,5 pt
+
+const centrarContra = altura => Math.max(0, Math.round((BRASAO_ALTURA - altura) / 2))
 
 // ── Figuras ──────────────────────────────────────────────────
 //
@@ -116,7 +140,6 @@ const COR = {
   apagado:     '#888780',
   legenda:     '#5F5E5A',
   linha:       '#E5E3DC',
-  regua:       '#D4D2C9',
   fundo:       '#FAFAF8',
   fundoAlt:    '#F1EFE8',
   minutaFundo: '#FAEEDA',
@@ -167,13 +190,17 @@ function registrarFontes() {
 
 const ESTILOS = {
   minuta:      { fontSize: 8.5, bold: true, color: COR.minutaTexto, alignment: 'center', characterSpacing: 0.6 },
-  // As três linhas do timbre saem alinhadas à ESQUERDA quando há brasão: o
-  // brasão é a âncora e texto centrado ao lado dele fica pendurado no vão.
-  // Sem brasão, cabecalho() devolve as mesmas linhas centradas.
-  orgao1:      { fontSize: 10, bold: true, color: '#222222', characterSpacing: 1.2 },
-  orgao2:      { fontSize: 8.5, bold: true, color: COR.legenda, characterSpacing: 1.1, margin: [0, 3, 0, 0] },
-  orgao3:      { fontSize: 8.5, color: COR.apagado, characterSpacing: 1.1, margin: [0, 2, 0, 0] },
-  tituloPeca:  { fontSize: 13, bold: true, color: COR.texto, alignment: 'center', characterSpacing: 1.2, margin: [0, 10, 0, 0] },
+  // Timbre da coluna do meio, centrado entre o brasão e o bloco de
+  // responsabilidade técnica. `characterSpacing` é o nome que o pdfmake dá ao
+  // que o CSS chama de letter-spacing — não existe `letterSpacing` aqui.
+  orgao1:      { fontSize: 10, bold: true, color: '#222222', characterSpacing: 0.4, alignment: 'center' },
+  orgao2:      { fontSize: 9, color: '#222222', alignment: 'center', margin: [0, 2, 0, 0] },
+  orgao3:      { fontSize: 8, color: COR.apagado, alignment: 'center', margin: [0, 2, 0, 0] },
+  // Coluna da direita: quem responde tecnicamente, à direita, discreto.
+  rtLinha:     { fontSize: 7.5, color: COR.apagado, alignment: 'right', lineHeight: 1.3 },
+  // Sem margem de topo: o espaçamento acima do título é o de baixo da régua
+  // do cabeçalho (10 pt). Somar os dois era o espaço morto do topo da peça.
+  tituloPeca:  { fontSize: 13, bold: true, color: COR.texto, alignment: 'center', characterSpacing: 1.2 },
   rotulo:      { fontSize: 7, bold: true, color: COR.apagado, characterSpacing: 0.7 },
   valor:       { fontSize: 10, color: COR.texto },
   tituloSecao: { fontSize: 10.5, bold: true, color: COR.texto, margin: [0, 12, 0, 5] },
@@ -187,6 +214,10 @@ const ESTILOS = {
   cienciaTit:  { fontSize: 7.5, bold: true, color: COR.apagado, characterSpacing: 0.7 },
   cienciaCampo: { fontSize: 7, color: COR.apagado, margin: [0, 3, 0, 0] },
   hashMono:    { fontSize: 8.5, color: COR.texto, font: 'IBMPlexMono', lineHeight: 1.3 },
+  // Crédito do sistema, no pé. Estilo próprio e não o do rodapé: 6,5 pt contra
+  // 7 pt. Meio ponto separa o que identifica o ato — órgão, emissão, página —
+  // do que identifica a ferramenta que o produziu.
+  rodapeCredito: { fontSize: 6.5, color: COR.apagado, lineHeight: 1.2 },
 }
 
 const LAYOUT_IDENT = {
@@ -199,6 +230,20 @@ const LAYOUT_IDENT = {
   paddingRight:  () => 12,
   paddingTop:    () => 6,
   paddingBottom: () => 6,
+}
+
+// Timbre sem borda nenhuma. Não usa o layout 'noBorders' de fábrica porque
+// ele mantém os 4 pt de padding lateral padrão, e isso empurraria o brasão
+// para dentro em relação à margem — num cabeçalho, 4 pt de desalinho contra o
+// bloco de texto abaixo se enxergam. Zero nas bordas externas, respiro só
+// entre as colunas.
+const LAYOUT_TIMBRE = {
+  hLineWidth: () => 0,
+  vLineWidth: () => 0,
+  paddingLeft:   i => (i === 0 ? 0 : 12),
+  paddingRight:  (i, node) => (i === node.table.widths.length - 1 ? 0 : 12),
+  paddingTop:    () => 0,
+  paddingBottom: () => 0,
 }
 
 const LAYOUT_MATERIAIS = {
@@ -294,19 +339,18 @@ async function prepararFiguras(fotos) {
 
 // ── Peças do documento ───────────────────────────────────────
 
-function linha(largura, cor = COR.linha) {
+function linha(largura, cor = COR.linha, espessura = 0.5) {
   return {
     canvas: [{
       type: 'line', x1: 0, y1: 0, x2: largura, y2: 0,
-      lineWidth: 0.5, lineColor: cor,
+      lineWidth: espessura, lineColor: cor,
     }],
   }
 }
 
-function regua(margemTopo) {
-  return { margin: [0, margemTopo, 0, 0], ...linha(LARGURA_UTIL, COR.regua) }
-}
-
+// Margem de topo ZERO de propósito: a tarja vem logo abaixo do cabeçalho, e
+// quem dá o respiro acima dela é a margem inferior da régua do timbre. Somar
+// as duas devolveria o espaço morto que a peça tinha no alto.
 function tarjaMinuta() {
   return {
     margin: [0, 0, 0, 12],
@@ -324,33 +368,56 @@ function tarjaMinuta() {
   }
 }
 
-// Cabeçalho institucional: brasão à esquerda, timbre à direita.
+// Cabeçalho institucional: brasão, timbre e responsabilidade técnica, numa
+// tabela de três colunas sem borda. É o PRIMEIRO elemento do content — o que
+// vinha antes dele era espaço morto, e a margem de 20 mm já é o respiro.
 //
-// DEGRADA SEM QUEBRAR: enquanto marca.js não tiver o PNG, BRASAO_BASE64 é
-// string vazia e o cabeçalho volta a ser as três linhas centradas. O
-// documento sai inteiro — quem não tem o brasão ainda precisa emitir peça.
+// Tabela e não `columns` porque as três larguras são de naturezas diferentes:
+// o brasão tem largura própria, o bloco do RT se dimensiona pelo texto mais
+// longo que ele contém, e o timbre fica com o que sobrar. É exatamente o que
+// ['auto', '*', 'auto'] resolve.
+//
+// DEGRADA SEM QUEBRAR: se BRASAO_ITABUNA voltar a ser vazio, a coluna sai
+// como texto vazio e o timbre ocupa o lugar. O documento sai inteiro — nunca
+// se deixa a emissão de uma peça depender de um arquivo de imagem.
 function cabecalho() {
-  const timbre = [
-    { text: ORGAO.linha1, style: 'orgao1' },
-    { text: ORGAO.linha2, style: 'orgao2' },
-    { text: ORGAO.linha3, style: 'orgao3' },
-  ]
+  const brasao = BRASAO_ITABUNA
+    ? {
+      image: BRASAO_ITABUNA,
+      width: BRASAO_LARGURA,
+      height: BRASAO_ALTURA,
+    }
+    : { text: '' }
 
-  if (!BRASAO_BASE64) {
-    return timbre.map(l => ({ ...l, alignment: 'center' }))
+  const timbre = {
+    margin: [0, centrarContra(ALTURA_TIMBRE), 0, 0],
+    stack: [
+      { text: TIMBRE_PDF.orgao,      style: 'orgao1' },
+      { text: TIMBRE_PDF.secretaria, style: 'orgao2' },
+      { text: TIMBRE_PDF.sistema,    style: 'orgao3' },
+    ],
   }
 
-  return [{
-    columns: [
-      // height sozinho: o pdfmake calcula a largura pela proporção do
-      // arquivo. Passar width junto ESTICARIA o brasão para dentro da caixa.
-      { width: 'auto', image: BRASAO_BASE64, height: BRASAO_ALTURA },
-      { width: BRASAO_RESPIRO, text: '' },
-      // O recuo de topo centra opticamente as três linhas (~36 pt) contra a
-      // altura do brasão (51 pt). Sem ele o timbre encosta na borda de cima.
-      { width: '*', stack: timbre, margin: [0, 7, 0, 0] },
+  const responsavel = {
+    margin: [0, centrarContra(ALTURA_RT), 0, 0],
+    stack: [
+      { text: TIMBRE_PDF.empresa, style: 'rtLinha' },
+      { text: TIMBRE_PDF.rt,      style: 'rtLinha' },
     ],
-  }]
+  }
+
+  return [
+    {
+      table: {
+        widths: ['auto', '*', 'auto'],
+        body: [[brasao, timbre, responsavel]],
+      },
+      layout: LAYOUT_TIMBRE,
+    },
+    // Régua do timbre: mais grossa e mais escura que as réguas de seção, para
+    // separar o cabeçalho do documento e não virar mais uma divisória interna.
+    { margin: [0, 6, 0, 10], ...linha(LARGURA_UTIL, COR.legenda, 0.8) },
+  ]
 }
 
 function blocoIdentificacao(os) {
@@ -552,9 +619,13 @@ function blocoValidacao(os) {
 
 // Duas assinaturas, lado a lado, mais a linha de ciência da unidade.
 //
-// Duas, não uma: quem executou e quem responde tecnicamente são fatos
-// distintos, e assinatura única obrigava o RT a responder pela execução que
-// não presenciou.
+// Os dois LADOS da relação: à esquerda quem executou o serviço em campo, pela
+// contratada; à direita quem valida tecnicamente dentro da SEMED. Assinatura
+// única fazia o mesmo lado atestar o próprio trabalho.
+//
+// A coluna da direita NÃO usa RESPONSAVEL_TECNICO — esse identifica a direção
+// técnica da executora e vive no cabeçalho. São papéis distintos; o porquê
+// está escrito em VALIDACAO_TECNICA_TI, em documento.js.
 //
 // O bloco inteiro é unbreakable: assinatura sozinha no alto de uma folha
 // nova, sem o documento que ela assina, é o defeito clássico de peça gerada —
@@ -563,12 +634,16 @@ function blocoAssinaturas(os) {
   const VAO_ASSIN = 34
   const LARG_ASSIN = (LARGURA_UTIL - VAO_ASSIN) / 2
 
-  const assinatura = (nome, cargo) => ({
+  // A régua é o PRIMEIRO nó de cada pilha, e coluna do pdfmake alinha pelo
+  // topo: as duas réguas saem na mesma altura por construção, independentemente
+  // de quantas linhas venham abaixo. É o que deixa a coluna da direita ter três
+  // linhas e a da esquerda duas sem desencontrar as assinaturas.
+  const assinatura = (nome, ...linhas) => ({
     width: LARG_ASSIN,
     stack: [
       linha(LARG_ASSIN, COR.apagado),
-      { text: nome,  style: 'assinNome',  margin: [0, 6, 0, 0] },
-      { text: cargo, style: 'assinCargo' },
+      { text: nome, style: 'assinNome', margin: [0, 6, 0, 0] },
+      ...linhas.map(texto => ({ text: texto, style: 'assinCargo' })),
     ],
   })
 
@@ -591,7 +666,11 @@ function blocoAssinaturas(os) {
         columns: [
           assinatura(assinaturaTecnicoNome(os), TECNICO_EXECUTANTE.cargo),
           { width: VAO_ASSIN, text: '' },
-          assinatura(assinaturaNome(), assinaturaCargo(os)),
+          assinatura(
+            VALIDACAO_TECNICA_TI.nome,
+            VALIDACAO_TECNICA_TI.cargo,
+            VALIDACAO_TECNICA_TI.designacao,
+          ),
         ],
       },
       { text: CIENCIA.titulo.toUpperCase(), style: 'cienciaTit', margin: [0, 22, 0, 0] },
@@ -620,13 +699,23 @@ function blocoAssinaturas(os) {
 // chamado por folha, e um new Date() aqui dentro daria horas diferentes no
 // mesmo documento se a geração cruzasse a virada do minuto.
 function rodape(emitidoEm, validado) {
+  // ORDEM POR RISCO DE CORTE, não por importância editorial. A linha mais
+  // próxima da borda é a que mais se perde na impressão — margem estreita,
+  // papel torto, impressora que reduz a página para caber. Perder o aviso de
+  // documento não validado faria a folha mentir sobre o próprio estado, e uma
+  // minuta sem tarja circula como se fosse peça final. O crédito do sistema
+  // pode se perder sem consequência; a tarja, não. Por isso o crédito é o
+  // último, encostado na borda, e a tarja fica acima dele.
   const esquerda = [{ text: RODAPE.emitido(emitidoEm), fontSize: 7, color: COR.apagado }]
   if (!validado) {
     esquerda.push({ text: RODAPE.minuta, fontSize: 7, bold: true, color: COR.minutaTexto, margin: [0, 2, 0, 0] })
   }
+  esquerda.push({ text: RODAPE.credito, style: 'rodapeCredito', margin: [0, 1.5, 0, 0] })
 
+  // Respiro de 7 pt acima do rodapé, não 10: com a linha de crédito, cada
+  // ponto aqui é um ponto a menos entre a última linha e a borda do papel.
   return (paginaAtual, totalPaginas) => ({
-    margin: [MARGENS[0], 10, MARGENS[2], 0],
+    margin: [MARGENS[0], 7, MARGENS[2], 0],
     columns: [
       { width: '*', stack: esquerda },
       {
@@ -661,12 +750,17 @@ export async function gerarPdfRelatorio(os, justificativaSemFoto = null) {
   const validado  = os.relatorio_status === 'validado'
   const emitidoEm = new Date().toISOString()
 
-  const conteudo = []
+  // O cabeçalho é SEMPRE o primeiro elemento: a peça se identifica — de que
+  // órgão é, de que sistema saiu, quem responde por ela — antes de dizer em
+  // que estado está. A tarja de MINUTA entra logo abaixo, ainda acima do
+  // título, porque é ressalva sobre o documento, não sobre a instituição.
+  //
+  // A REGRA de quando a tarja aparece não mudou: só relatório não validado.
+  // O cabeçalho já traz a própria régua; não há régua solta aqui.
+  const conteudo = [...cabecalho()]
   if (!validado) conteudo.push(tarjaMinuta())
 
   conteudo.push(
-    ...cabecalho(),
-    regua(10),
     { text: ORGAO.titulo, style: 'tituloPeca' },
     blocoIdentificacao(os),
     ...blocoTexto(SECOES.problema, os.relatorio_problema),
@@ -688,6 +782,7 @@ export async function gerarPdfRelatorio(os, justificativaSemFoto = null) {
     info: {
       title:    `${METADADO.titulo} — ${os.numero || ''}`.replace(/ — $/, ''),
       author:   METADADO.autor,
+      creator:  METADADO.criador,
       subject:  METADADO.assunto,
       keywords: [os.numero, os.location?.name, os.tecnico?.name]
         .map(v => String(v || '').trim()).filter(Boolean).join(', '),

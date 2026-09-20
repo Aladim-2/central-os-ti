@@ -17,9 +17,6 @@ import { dataHora } from '../../lib/datas'
 export const ORGAO = {
   linha1: 'PREFEITURA MUNICIPAL DE ITABUNA',
   linha2: 'SECRETARIA MUNICIPAL DE EDUCAÇÃO — SEMED',
-  // Terceira linha do timbre. Só o PDF a usa: na folha HTML o cabeçalho não
-  // tem brasão, e sem a âncora visual do brasão a terceira linha vira ruído.
-  linha3: 'Central OS TI',
   titulo: 'RELATÓRIO DE ATENDIMENTO TÉCNICO DE TI',
 }
 
@@ -30,10 +27,20 @@ export const ORGAO = {
 // O título do metadado NÃO é ORGAO.titulo: dentro da folha o título é caixa
 // alta porque é peça gráfica; na barra do leitor de PDF, caixa alta lê como
 // grito e atrapalha a busca.
+// Em PDF, Author é quem responde pelo CONTEÚDO — o órgão emissor. Creator é
+// a ferramenta que produziu o documento, e é onde a autoria do software se
+// registra. Trocar os dois apagaria a SEMED do metadado de autoria, que é
+// por onde um protocolo filtra, sem ganhar nada: o crédito do
+// desenvolvimento já está no criador, no campo semanticamente correto.
+//
+// `producer` fica de fora de propósito — é o pdfmake que o escreve, e
+// sobrescrevê-lo apagaria a única linha do metadado que diz com que motor o
+// arquivo foi gerado.
 export const METADADO = {
   titulo:  'Relatório de Atendimento Técnico',
   autor:   'SEMED Itabuna — Central OS TI',
   assunto: 'Relatório de atendimento técnico de TI',
+  criador: 'Central OS TI — desenvolvido por Eng. Valter Alves, SOS Serviços Engenharia e Manutenção',
 }
 
 // Responsável técnico que assina a peça. É o RT do sistema, não quem está
@@ -171,6 +178,11 @@ export const RODAPE = {
   // Tarja curta de rodapé para a minuta. `semHash` continua existindo porque
   // a folha HTML ainda a usa no rodapé dela, onde o hash não subiu de lugar.
   minuta: 'MINUTA — documento não validado',
+  // Crédito de autoria do software, não do serviço executado. Fica em terceira
+  // pessoa e em corpo reduzido: é identificação técnica do sistema dentro de um
+  // ato oficial, não divulgação. O registro que prova autoria são os metadados
+  // do PDF, abaixo — o rodapé é só a parte visível.
+  credito: 'Sistema desenvolvido por Eng. Valter Alves · SOS Serviços Engenharia e Manutenção',
   prefixoHash: PREFIXO_HASH,
   comHash: hash => `${PREFIXO_HASH}${hash}`,
   semHash: 'MINUTA — documento não validado · sem hash de verificação',
@@ -198,7 +210,9 @@ export function nomeArquivoPdf(os) {
 // ── Validação ────────────────────────────────────────────────
 
 export const VALIDACAO = {
-  rotuloQuem:  'Validado por',
+  // "no sistema" distingue o evento — quem clicou em validar, e quando — do
+  // parecer técnico do subcoordenador, que assina logo abaixo na mesma peça.
+  rotuloQuem:  'Validado no sistema por',
   rotuloComo:  'Data e hora da validação',
   rotuloHash:  'Hash SHA-256 do conteúdo validado',
 }
@@ -214,25 +228,37 @@ export function hashEmDuasLinhas(hash) {
   return [h.slice(0, meio), h.slice(meio)]
 }
 
-// Quem validou. `relatorio_validado_por` guarda o UUID do gestor, e o select
-// da OS hoje NÃO traz o profile correspondente — só o do técnico. Sem a
-// junção, não há nome para imprimir: devolve o travessão, como qualquer campo
-// vazio da peça.
+// Quem validou, na ordem: nome GRAVADO na validação, nome vindo de junção,
+// travessão.
 //
-// O UUID NÃO entra como substituto. Documento que circula para fora da SEMED
-// não prova responsabilidade com uma chave interna de banco: quem lê não tem
+// `relatorio_validado_por_nome` é a fonte boa porque foi carimbado no instante
+// do aceite. O nome impresso numa peça de auditoria é o nome NA DATA DA
+// VALIDAÇÃO — resolver por junção faria um relatório de 2026 imprimir outra
+// coisa em 2028 se o cadastro mudasse. Mesmo princípio do hash, aplicado ao
+// nome.
+//
+// A junção fica como SEGUNDO fallback, não por gosto, mas pelos relatórios
+// validados antes desta mudança: neles a coluna está vazia e só há o UUID.
+// Remover essa linha apagaria o nome de peça já emitida, que é justamente o
+// que a regra de cima existe para impedir.
+//
+// O UUID NÃO entra como último recurso. Documento que circula para fora da
+// SEMED não prova responsabilidade com chave interna de banco: quem lê não tem
 // como resolver o identificador, e imprimir o que não se pode conferir é pior
 // que assumir a ausência.
 export function validadorNome(os) {
-  const nome = os?.validador?.name || os?.validado_por?.name || ''
-  return nome.trim() || TRAVESSAO
+  const nome = os?.relatorio_validado_por_nome
+    || os?.validador?.name
+    || os?.validado_por?.name
+    || ''
+  return String(nome).trim() || TRAVESSAO
 }
 
 // ── Assinaturas ──────────────────────────────────────────────
 //
-// Duas assinaturas, dois fatos distintos: quem executou o serviço e quem
-// responde tecnicamente por ele. Uma assinatura só obrigava o RT a responder
-// pela execução que não presenciou.
+// Duas assinaturas, dois lados da relação: quem EXECUTOU o serviço em campo,
+// pela contratada, e quem VALIDA tecnicamente o serviço dentro da SEMED. Uma
+// assinatura só fazia o mesmo lado atestar o próprio trabalho.
 
 export const TECNICO_EXECUTANTE = {
   cargo: 'Técnico responsável pela execução',
@@ -243,6 +269,18 @@ export function assinaturaTecnicoNome(os) {
   return nome || TRAVESSAO
 }
 
+// Quem valida tecnicamente o serviço de TI DENTRO da SEMED. É pessoa e papel
+// distintos de RESPONSAVEL_TECNICO, que identifica a direção técnica da
+// EXECUTORA (SOS Engenharia) no cabeçalho. A divergência é deliberada:
+// CREA não alcança serviço de informática, e cargo em comissão se comprova
+// por ato de designação, não por registro em conselho de classe.
+// Não unifique as duas.
+export const VALIDACAO_TECNICA_TI = {
+  nome: 'Tarso José Varjão Aguiar',
+  cargo: 'Subcoordenador da Manutenção de Redes e Informática',
+  designacao: 'Portaria nº 11.207, de 06/03/2026',
+}
+
 // Ciência da unidade. É campo para caneta, não dado do sistema: a direção
 // assina no papel, depois que o serviço foi entregue. Por isso são rótulos de
 // linha em branco, e não valores lidos da OS.
@@ -251,4 +289,26 @@ export const CIENCIA = {
   assinatura: 'Assinatura',
   nome:       'Nome legível',
   data:       'Data',
+}
+
+// ── Timbre do PDF ────────────────────────────────────────────
+//
+// Separado de ORGAO de propósito. O cabeçalho impresso e o da tela deixaram
+// de ser a mesma coisa: no PDF há brasão à esquerda e bloco de
+// responsabilidade técnica à direita, que a folha HTML não tem e não deve
+// ter. Empurrar os dois para dentro de ORGAO obrigaria uma das
+// representações a carregar texto que ela não mostra — que é a divergência
+// silenciosa que este módulo existe para impedir, só que pelo avesso.
+//
+// `rt` identifica a direção técnica da EXECUTORA, e é o ÚNICO lugar da peça
+// onde RESPONSAVEL_TECNICO aparece desde que o bloco de assinaturas passou a
+// usar VALIDACAO_TECNICA_TI. Cabeçalho e assinatura da direita nomeiam papéis
+// diferentes de propósito — quem for unificar leia o comentário de
+// VALIDACAO_TECNICA_TI antes.
+export const TIMBRE_PDF = {
+  orgao:      'PREFEITURA MUNICIPAL DE ITABUNA',
+  secretaria: 'SECRETARIA MUNICIPAL DE EDUCAÇÃO',
+  sistema:    'Central OS TI — Gestão de Ordens de Serviço de Tecnologia da Informação',
+  empresa:    'SOS Serviços Engenharia e Manutenção',
+  rt:         assinaturaNome(),
 }
