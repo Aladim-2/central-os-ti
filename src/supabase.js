@@ -1169,11 +1169,23 @@ export async function importarItens(itens) {
 // Módulo completo fica para depois; estas duas funções já servem
 // para vincular um equipamento à OS na tela de criação.
 
+// O corte é `baixado_em is null`, e NÃO a situação do bem.
+//
+// Situação não barra vínculo com OS: bem ocioso, recuperável ou em mau estado
+// é exatamente aquilo para o que se abre chamado. Filtrar por situação
+// esconderia da tela de OS justamente o parque que mais precisa de
+// atendimento — e o histórico de OS do bem é o que fundamenta classificá-lo
+// como antieconômico depois (Decreto 9.373). Cortar a entrada desses
+// chamados apagaria a própria prova.
+//
+// A coluna `status` ficou obsoleta com `situacao` + `conservacao`, mas segue
+// intocada: é NOT NULL com default e ninguém a apaga nesta fase. Só deixou de
+// mandar em quem aparece na lista.
 export async function fetchAtivos(locationId = null) {
   let query = supabase
     .from('ti_ativos')
     .select('*')
-    .neq('status', 'baixado')
+    .is('baixado_em', null)
     .order('tipo')
 
   if (locationId) query = query.eq('location_id', locationId)
@@ -1191,6 +1203,206 @@ export async function fetchAtivoPorQr(qrSlug) {
     .single()
   if (error) throw error
   return data
+}
+
+// ── Inventário patrimonial — Fase 1 ──────────────────────────
+//
+// Registro analítico do bem permanente (Lei 4.320, art. 94).
+// Spec: docs/spec-inventario-ti.md.
+
+// Ordem de TELA, não de banco: o que mais se cadastra vem primeiro. Os valores
+// são os mesmos do CHECK ti_ativos_tipo_check — mexer aqui sem mexer lá faz o
+// INSERT falhar com erro de constraint no clique, nunca no build.
+export const TIPOS_ATIVO = [
+  { valor: 'desktop',        rotulo: 'Desktop' },
+  { valor: 'notebook',       rotulo: 'Notebook' },
+  { valor: 'monitor',        rotulo: 'Monitor' },
+  { valor: 'impressora',     rotulo: 'Impressora' },
+  { valor: 'multifuncional', rotulo: 'Multifuncional' },
+  { valor: 'projetor',       rotulo: 'Projetor' },
+  { valor: 'tv',             rotulo: 'TV' },
+  { valor: 'tablet',         rotulo: 'Tablet' },
+  { valor: 'servidor',       rotulo: 'Servidor' },
+  { valor: 'roteador',       rotulo: 'Roteador' },
+  { valor: 'switch',         rotulo: 'Switch' },
+  { valor: 'access_point',   rotulo: 'Access point' },
+  { valor: 'nobreak',        rotulo: 'Nobreak' },
+  { valor: 'estabilizador',  rotulo: 'Estabilizador' },
+  { valor: 'periferico',     rotulo: 'Periférico' },
+  { valor: 'componente',     rotulo: 'Componente' },
+  { valor: 'outro',          rotulo: 'Outro' },
+]
+
+// Situação patrimonial (Decreto 9.373) e estado físico são eixos DISTINTOS:
+// bem em bom estado pode estar ocioso, bem em uso pode estar ruim. A `ajuda`
+// existe para o operador não escolher pelo nome e sim pelo significado.
+export const SITUACOES_ATIVO = [
+  { valor: 'em_uso',        rotulo: 'Em uso',        ajuda: 'Em operação na unidade' },
+  { valor: 'ocioso',        rotulo: 'Ocioso',        ajuda: 'Funciona, mas não está sendo usado' },
+  { valor: 'recuperavel',   rotulo: 'Recuperável',   ajuda: 'Parado; conserto vale a pena' },
+  { valor: 'antieconomico', rotulo: 'Antieconômico', ajuda: 'Manutenção custa mais que o bem vale' },
+  { valor: 'irrecuperavel', rotulo: 'Irrecuperável', ajuda: 'Sem conserto possível' },
+]
+
+export const CONSERVACOES_ATIVO = [
+  { valor: 'bom',     rotulo: 'Bom' },
+  { valor: 'regular', rotulo: 'Regular' },
+  { valor: 'ruim',    rotulo: 'Ruim' },
+]
+
+// Chaves de `especificacao` que fazem sentido por tipo. A coluna é jsonb
+// justamente porque o conjunto varia: pedir contador de páginas a um switch
+// enche a tela de campo que ninguém preenche, e campo que ninguém preenche
+// ensina o operador a ignorar a tela inteira.
+const ESPEC_COMPUTADOR = [
+  { chave: 'processador',         rotulo: 'Processador',    dica: 'Ex.: i5-10400' },
+  { chave: 'memoria',             rotulo: 'Memória',        dica: 'Ex.: 8 GB' },
+  { chave: 'armazenamento',       rotulo: 'Armazenamento',  dica: 'Ex.: SSD 240 GB' },
+  { chave: 'sistema_operacional', rotulo: 'Sistema',        dica: 'Ex.: Windows 11' },
+  { chave: 'hostname',            rotulo: 'Hostname' },
+  { chave: 'mac',                 rotulo: 'MAC' },
+  { chave: 'ip_fixo',             rotulo: 'IP fixo' },
+]
+
+const ESPEC_REDE = [
+  { chave: 'portas',  rotulo: 'Portas', dica: 'Ex.: 24' },
+  { chave: 'mac',     rotulo: 'MAC' },
+  { chave: 'ip_fixo', rotulo: 'IP fixo' },
+]
+
+const ESPEC_IMPRESSAO = [
+  { chave: 'contador_paginas', rotulo: 'Contador de páginas' },
+]
+
+const ESPECIFICACAO_POR_TIPO = {
+  desktop:        ESPEC_COMPUTADOR,
+  notebook:       ESPEC_COMPUTADOR,
+  servidor:       ESPEC_COMPUTADOR,
+  tablet:         ESPEC_COMPUTADOR,
+  roteador:       ESPEC_REDE,
+  switch:         ESPEC_REDE,
+  access_point:   ESPEC_REDE,
+  impressora:     ESPEC_IMPRESSAO,
+  multifuncional: ESPEC_IMPRESSAO,
+}
+
+export function camposEspecificacao(tipo) {
+  return ESPECIFICACAO_POR_TIPO[tipo] || []
+}
+
+// Vazio vira NULL, nunca string vazia.
+//
+// O CHECK ti_ativos_tombamento_nao_vazio recusa '' no banco, e a mensagem que
+// o Postgres devolve não diz nada a quem está digitando. Mas o motivo é mais
+// fundo que a mensagem: '' colide com '' no índice de unicidade, então o
+// SEGUNDO bem sem plaqueta falharia. Ausência é NULL; '' é um valor.
+function vazioVirouNulo(v) {
+  if (v == null) return null
+  const t = String(v).trim()
+  return t === '' ? null : t
+}
+
+// Monta o jsonb de especificação a partir do que o operador preencheu,
+// descartando o que ficou em branco: `{}` gravado é ruído que depois parece
+// dado. Sem nada preenchido, grava NULL.
+function especificacaoLimpa(bruto) {
+  const limpo = {}
+  for (const [k, v] of Object.entries(bruto || {})) {
+    const t = vazioVirouNulo(v)
+    if (t !== null) limpo[k] = t
+  }
+  return Object.keys(limpo).length ? limpo : null
+}
+
+// Normaliza ANTES de enviar, num lugar só. Se cada tela normalizasse do seu
+// jeito, a próxima (importação em lote, leitura de QR) gravaria '' de novo e
+// o defeito voltaria pela porta que ninguém está olhando.
+export function normalizarAtivo(f) {
+  const texto = [
+    'tombamento', 'numero_serie', 'marca', 'modelo', 'setor', 'observacoes',
+    'responsavel_nome', 'responsavel_matricula',
+    'nf_number', 'contrato_numero', 'empenho_numero', 'processo_numero',
+  ]
+  const data = ['data_aquisicao', 'garantia_ate', 'recebimento_definitivo', 'termo_assinado_em']
+
+  const out = {
+    tipo:        f.tipo,
+    location_id: f.location_id || null,
+    situacao:    f.situacao || null,
+    conservacao: f.conservacao || null,
+    ativo_pai_id: f.ativo_pai_id || null,
+    valor_aquisicao: vazioVirouNulo(f.valor_aquisicao) === null ? null : Number(f.valor_aquisicao),
+    especificacao: especificacaoLimpa(f.especificacao),
+  }
+  for (const k of texto) out[k] = vazioVirouNulo(f[k])
+  for (const k of data)  out[k] = vazioVirouNulo(f[k])
+  return out
+}
+
+export async function fetchAtivo(id) {
+  const { data, error } = await supabase
+    .from('ti_ativos')
+    .select('*, location:locations(*), pai:ti_ativos!ti_ativos_ativo_pai_id_fkey(id, tipo, marca, modelo, tombamento)')
+    .eq('id', id)
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function criarAtivo(f) {
+  const { data, error } = await supabase
+    .from('ti_ativos')
+    .insert(normalizarAtivo(f))
+    .select('*, location:locations(*)')
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function atualizarAtivo(id, f) {
+  const { data, error } = await supabase
+    .from('ti_ativos')
+    .update(normalizarAtivo(f))
+    .eq('id', id)
+    .select('*, location:locations(*)')
+    .single()
+  if (error) throw error
+  return data
+}
+
+// Aviso NÃO-bloqueante de número de série repetido.
+//
+// `numero_serie` não é único no banco de propósito: é chave natural no
+// intervalo entre a chegada e o tombamento, e nesse intervalo um lote de
+// equipamento idêntico pode chegar com etiqueta ilegível ou com série
+// repetida de fábrica. Barrar impediria o cadastro de um bem que existe;
+// avisar deixa o operador decidir se é duplicata ou coincidência.
+export async function ativosComMesmaSerie(serie, ignorarId = null) {
+  const s = vazioVirouNulo(serie)
+  if (!s) return []
+  let q = supabase
+    .from('ti_ativos')
+    .select('id, tombamento, tipo, marca, modelo, location:locations(name)')
+    .eq('numero_serie', s)
+    .limit(5)
+  if (ignorarId) q = q.neq('id', ignorarId)
+  const { data, error } = await q
+  if (error) throw error
+  return data || []
+}
+
+// Lista enxuta para a tela chegar em algum bem e poder editá-lo. O inventário
+// analítico, com filtro e ordenação, é a próxima entrega — esta função sai
+// quando ele chegar.
+export async function fetchAtivosRecentes(limite = 30) {
+  const { data, error } = await supabase
+    .from('ti_ativos')
+    .select('*, location:locations(name)')
+    .is('baixado_em', null)
+    .order('created_at', { ascending: false })
+    .limit(limite)
+  if (error) throw error
+  return data || []
 }
 
 // ── Notificações por WhatsApp ────────────────────────────────

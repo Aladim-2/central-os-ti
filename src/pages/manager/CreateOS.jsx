@@ -1,118 +1,9 @@
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { createOS, addHistory, fetchTiposDemanda, fetchAtivos } from '../../supabase'
-
-// ── Autocomplete de escola ────────────────────────────────────
-function EscolaAutocomplete({ locs, value, onChange }) {
-  const [query,   setQuery]   = useState('')
-  const [open,    setOpen]    = useState(false)
-  const [focused, setFocused] = useState(false)
-  const wrapRef = useRef(null)
-
-  const locSel = locs.find(l => l.id === value)
-
-  useEffect(() => {
-    if (locSel && !focused) setQuery(locSel.name)
-  }, [locSel, focused])
-
-  useEffect(() => {
-    function handler(e) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
-        setOpen(false)
-        setFocused(false)
-        if (locSel) setQuery(locSel.name)
-        else setQuery('')
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [locSel])
-
-  const filtered = useMemo(() => {
-    if (!query.trim()) return locs
-    const q = query.toLowerCase().trim()
-    return locs.filter(l => {
-      const nome = l.name.toLowerCase()
-      if (nome.includes(q)) return true
-      const iniciais = nome.split(' ').filter(w => w.length > 2).map(w => w[0]).join('').toLowerCase()
-      if (iniciais.includes(q)) return true
-      return false
-    }).slice(0, 12)
-  }, [locs, query])
-
-  function select(loc) {
-    onChange(loc.id)
-    setQuery(loc.name)
-    setOpen(false)
-    setFocused(false)
-  }
-
-  function handleInput(e) {
-    setQuery(e.target.value)
-    setOpen(true)
-    if (!e.target.value) onChange('')
-  }
-
-  function handleFocus() {
-    setFocused(true)
-    setQuery('')
-    setOpen(true)
-  }
-
-  return (
-    <div ref={wrapRef} style={{ position: 'relative' }}>
-      <div style={{ position: 'relative' }}>
-        <input
-          value={query}
-          onChange={handleInput}
-          onFocus={handleFocus}
-          placeholder="Digite o nome ou sigla da escola..."
-          autoComplete="off"
-          style={{
-            width: '100%', padding: '8px 32px 8px 10px',
-            borderRadius: 8, fontSize: 13, boxSizing: 'border-box',
-            border: value ? '1.5px solid #1D4ED8' : '0.5px solid #e5e3dc',
-            outline: 'none', background: '#fff'
-          }}
-        />
-        {value
-          ? <button onClick={() => { onChange(''); setQuery(''); setOpen(false) }}
-              style={{ position:'absolute', right:8, top:'50%', transform:'translateY(-50%)', background:'none', border:'none', cursor:'pointer', fontSize:14, color:'#888780', padding:0 }}>
-              ✕
-            </button>
-          : <span style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', fontSize:13, color:'#aaa', pointerEvents:'none' }}>🔍</span>
-        }
-      </div>
-
-      {open && (
-        <div style={{
-          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999,
-          background: '#fff', border: '0.5px solid #e5e3dc', borderRadius: 8,
-          boxShadow: '0 4px 20px rgba(0,0,0,0.12)', maxHeight: 260, overflowY: 'auto',
-          marginTop: 4
-        }}>
-          {filtered.length === 0
-            ? <p style={{ padding: '12px 14px', fontSize: 13, color: '#888780' }}>Nenhuma escola encontrada.</p>
-            : filtered.map(l => (
-                <div key={l.id} onMouseDown={() => select(l)}
-                  style={{
-                    padding: '9px 14px', cursor: 'pointer', fontSize: 13,
-                    borderBottom: '0.5px solid #f5f5f4',
-                    background: l.id === value ? '#DBEAFE' : '#fff',
-                    fontWeight: l.id === value ? 600 : 400,
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.background = l.id === value ? '#DBEAFE' : '#f0f7ff'}
-                  onMouseLeave={e => e.currentTarget.style.background = l.id === value ? '#DBEAFE' : '#fff'}
-                >
-                  <p style={{ marginBottom: 1 }}>{l.name}</p>
-                  {l.neighborhood && <p style={{ fontSize: 11, color: '#888780' }}>📍 {l.neighborhood}</p>}
-                </div>
-              ))
-          }
-        </div>
-      )}
-    </div>
-  )
-}
+// O autocomplete de local saiu daqui para LocalAutocomplete.jsx quando o
+// inventario passou a precisar do mesmo controle. Duplicar cem linhas
+// garantiria que uma das duas copias envelhecesse.
+import LocalAutocomplete from './LocalAutocomplete'
 
 // ── Prazo previsto a partir do SLA do tipo ────────────────────
 function prazoPrevisto(horas) {
@@ -226,7 +117,7 @@ export default function CreateOS({ locs, tecnicos, profile, onCreated, onBack })
           {/* Escola */}
           <div style={{ marginBottom: 14 }}>
             <label className="label">Escola / Unidade *</label>
-            <EscolaAutocomplete
+            <LocalAutocomplete
               locs={locs}
               value={f.location_id}
               onChange={v => { set('location_id', v); set('ativo_id', '') }}

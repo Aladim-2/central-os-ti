@@ -6,6 +6,7 @@ import Dashboard from './Dashboard'
 import CreateOS from './CreateOS'
 import OSDetail from './OSDetail'
 import StockManager from './StockManager'
+import Inventario from './Inventario'
 import NotificacaoConfig from './NotificacaoConfig'
 import Relatorios from './Relatorios'
 import Versao from '../../Versao'
@@ -21,6 +22,24 @@ function Avatar({ initials, size = 28 }) {
       fontSize: size * 0.4, fontWeight: 600
     }}>
       {initials || '??'}
+    </div>
+  )
+}
+
+// ── Acesso restrito ──────────────────────────────────────────
+//
+// Tela de recusa para quem chega numa view que o perfil dele não alcança.
+// Existe para a aplicação NÃO tentar carregar o que o banco vai negar: sem
+// ela, a tela montaria, dispararia a consulta, levaria o erro de RLS e
+// mostraria "falha ao carregar" — que descreve um defeito, quando o que houve
+// foi a regra funcionando.
+function AcessoRestrito({ recurso }) {
+  return (
+    <div style={{ maxWidth: 420 }}>
+      <h1 style={{ fontSize: 20, fontWeight: 500, marginBottom: 6 }}>Acesso restrito</h1>
+      <p style={{ fontSize: 13, color: '#888780' }}>
+        {recurso} é área de administrador. Sua conta não tem esse acesso.
+      </p>
     </div>
   )
 }
@@ -265,6 +284,16 @@ export default function ManagerApp({ profile }) {
 
   const papelRotulo = profile.role === 'central_ti' ? 'Central de TI' : 'Gestor'
 
+  // Administrador é eixo SEPARADO do papel. `role` diz que trabalho a pessoa
+  // faz na Central; `is_admin` diz se ela administra a configuração do
+  // sistema. Há gestor que não é administrador, e derivar um do outro daria
+  // acesso a quem o banco recusa.
+  //
+  // Comparação estrita com true: perfil antigo em cache, coluna ausente ou
+  // null têm que significar "não é administrador". Ausência de informação
+  // nunca pode abrir porta.
+  const ehAdmin = profile.is_admin === true
+
   return (
     <div style={{ display: 'flex', minHeight: '100dvh' }}>
 
@@ -345,6 +374,10 @@ export default function ManagerApp({ profile }) {
           <button className={`sidebar-link${view === 'escolas' ? ' active' : ''}`} onClick={() => setView('escolas')}>🏫 Escolas</button>
           <button className={`sidebar-link${view === 'equipe' ? ' active' : ''}`} onClick={() => setView('equipe')}>👥 Equipe</button>
           <button className={`sidebar-link${view === 'estoque' ? ' active' : ''}`} onClick={() => setView('estoque')}>📦 Estoque</button>
+          {/* Entre Estoque e Relatórios de propósito: Estoque é material de
+              consumo, Inventário é bem permanente. Nesta ordem a barra lê o
+              ciclo de cima para baixo — chamado, material, patrimônio, peça. */}
+          <button className={`sidebar-link${view === 'inventario' ? ' active' : ''}`} onClick={() => setView('inventario')}>🏷️ Inventário</button>
           <button
             className={`sidebar-link${view === 'relatorios' ? ' active' : ''}`}
             onClick={() => setView('relatorios')}
@@ -360,7 +393,12 @@ export default function ManagerApp({ profile }) {
               </span>
             )}
           </button>
-          <button className={`sidebar-link${view === 'notificacoes' ? ' active' : ''}`} onClick={() => setView('notificacoes')}>🔔 Notificações</button>
+          {/* A aba some para quem nao e administrador, mas a protecao NAO esta aqui:
+              ti_wa_config e barrada por RLS no banco, e a chave anon e publica. Esconder
+              a aba e para a tela nao oferecer o que ela nao pode usar — nunca a fronteira. */}
+          {ehAdmin && (
+            <button className={`sidebar-link${view === 'notificacoes' ? ' active' : ''}`} onClick={() => setView('notificacoes')}>🔔 Notificações</button>
+          )}
         </div>
 
         <div style={{ borderTop: '0.5px solid #e5e3dc', paddingTop: '1rem' }}>
@@ -428,6 +466,14 @@ export default function ManagerApp({ profile }) {
           <StockManager profile={profile} osList={osList} onReload={loadData} />
         )}
 
+        {/* O Inventário carrega os próprios bens — patrimônio não entra no
+            loadData daqui, que é do fluxo de OS. `locs` vai junto porque toda
+            a escolha de unidade e o default de situação saem da mesma lista de
+            locais que o resto da tela já tem em mãos. */}
+        {!loading && view === 'inventario' && (
+          <Inventario locs={locs} />
+        )}
+
         {/* Relatórios lê o mesmo osList do fluxo de OS — fetchOS já traz
             location, tecnico, tipo e photos, então não há consulta nova. */}
         {!loading && view === 'relatorios' && (
@@ -437,8 +483,14 @@ export default function ManagerApp({ profile }) {
           />
         )}
 
+        {/* Segunda checagem, do lado da view. Esconder o botão tira a porta da
+            frente; isto fecha a sala. Hoje `view` é estado local e não há URL
+            que aponte para 'notificacoes', mas quem amanhã ligar essas views a
+            rotas herda a recusa em vez de ter que lembrar de escrevê-la. */}
         {!loading && view === 'notificacoes' && (
-          <NotificacaoConfig profile={profile} />
+          ehAdmin
+            ? <NotificacaoConfig profile={profile} />
+            : <AcessoRestrito recurso="Configuração de notificações" />
         )}
 
         {!loading && view === 'senha' && (
