@@ -6,60 +6,57 @@ depois, por parecer redundante ou incompleto, algo que é deliberado.
 
 ---
 
-# ⛔ BLOQUEIO ATIVO — a carga inicial do catálogo de TI está proibida
+# ✅ BLOQUEIO RESOLVIDO — a carga inicial do catálogo de TI está liberada
 
-**Nenhum `INSERT` em `stock_items` com `disciplina='ti'` pode acontecer
-antes de a Central OS Elétrica passar a filtrar por disciplina nas
-consultas de estoque.**
+**Desde 2026-09-20 o `INSERT` de itens com `disciplina='ti'` está liberado**,
+pela tela, por CSV e por SQL. A trava que existia aqui — tela e importação
+desarmadas por um booleano — foi removida do `StockManager.jsx` na mesma data.
 
-Isso vale para cadastro pela tela, importação por CSV e carga por SQL.
-Sem exceção.
+O bloqueio original (registrado em 2026-09-13) era este: a Central OS Elétrica
+não filtrava por disciplina em nenhuma consulta de estoque, então o primeiro
+item de TI cadastrado apareceria nas telas dela, editável, e podia ser
+**apagado** junto com todas as suas movimentações — `StockManager.jsx:867-868`
+de lá faz `delete` das movimentações e depois do item, passando por fora da
+trigger `trg_ti_exige_os_na_saida`, que é `BEFORE INSERT OR UPDATE`.
 
-### Por quê
+## O que foi aplicado no banco em 2026-09-20
 
-A Elétrica **não filtra por disciplina em nenhuma consulta de estoque** —
-verificado em 2026-09-13 no HEAD de produção (`Aladim-2/central-os-eletrica`,
-commit `f85a274`) e no histórico. A palavra `disciplina` não aparece em
-nenhuma query de `stock_items` ou `stock_movements` de lá.
+Não se esperou o filtro no frontend da Elétrica: a separação foi fechada no
+banco, que é onde ela não depende de nenhuma tela.
 
-Enquanto o catálogo de TI estiver **vazio, o risco é zero**. No primeiro
-item cadastrado:
+| Camada | Mudança |
+|---|---|
+| `stock_items` | policies de `SELECT`, `INSERT` e `UPDATE` de **estoquista** e **eletricista** passaram a excluir `disciplina = 'ti'` |
+| `stock_movements` | mesma exclusão na policy do **estoquista** |
+| ambas | `DELETE` e `TRUNCATE` **revogados** de `anon` e `authenticated` |
+| ambas | policy **RESTRICTIVE** `using(false)` para `DELETE` |
 
-- os itens de TI passam a aparecer nas telas de estoque da Elétrica;
-- estoquista e gestor podem **editar** item de TI por lá;
-- estoquista e gestor podem **APAGAR** item de TI junto com todas as suas
-  movimentações — `StockManager.jsx:867-868` faz `delete` das
-  movimentações e depois do item.
+Consequências, verificadas por simulação na mesma data:
 
-O `delete` **passa por fora da trigger**: `trg_ti_exige_os_na_saida` é
-`BEFORE INSERT OR UPDATE`. Ela cobre os dois caminhos de saída da Elétrica,
-mas não a exclusão. É exatamente a porta que a seção 4.1 fecha na tela de
-TI, aberta pelo outro lado.
+- Para quem opera a Elétrica, **item de TI não existe**: a estoquista (Emy)
+  enxerga os 245 itens da Elétrica e **zero** de TI.
+- **Ninguém apaga item nem movimentação** — nem gestor, nem administrador. A
+  porta que a seção 4.1 fecha na tela de TI está fechada também do outro lado,
+  e agora no banco, não na tela.
 
-### Correção pendente, no repositório da Elétrica
+## Resíduo conhecido — não bloqueia a carga
 
-Adicionar `.eq('disciplina','eletrica')` em:
+**`gestor` (Valter e Caio) continua enxergando item de TI nas telas da Central
+OS Elétrica.** Nenhuma regra de banco distingue de qual tela a pessoa está
+consultando, e a policy de gestor é `FOR ALL` sem filtro de disciplina (ver
+seção 2).
 
-| Arquivo | Linha |
+É **confusão visual, não perda de dado**: o `DELETE` está fechado para todos.
+A única correção é filtrar `disciplina` no frontend da Elétrica —
+
+| Arquivo (repo da Elétrica) | Linha |
 |---|---|
 | `StockManager.jsx` | 185 (`select` de itens) |
 | `StockManager.jsx` | 186 (movimentações — precisa de `!inner` no join, `stock_movements` não tem coluna de disciplina) |
 | `Dashboard.jsx` | 82 |
 | `OSDetail.jsx` | 35 |
 
-Corrigir a listagem resolve edição e exclusão por consequência: não se
-apaga o que não aparece.
-
-**Não aplicar de passagem.** Em 2026-09-13 a working tree do repositório da
-Elétrica estava suja (5 arquivos modificados e não commitados) e o HEAD
-atrás da linhagem compartilhada. Patch em produção por cima de estado
-indefinido não vale quatro linhas. Quando mexer é decisão do Valter.
-
-### O que segue liberado
-
-A tela de Estoque da TI pode ser **construída e testada** normalmente,
-inclusive a importação por CSV. O que está bloqueado é **executar** a carga
-de itens reais.
+— e isso é fila daquela frente, não desta.
 
 ---
 
@@ -78,6 +75,11 @@ em produção da Elétrica. A regra do módulo é ser estritamente aditivo —
 coluna nova anulável, índice novo, policy nova PERMISSIVE. Nunca `DROP
 POLICY`, nunca alteração de policy existente, nunca alteração de coluna
 existente.
+
+**Exceção consciente, 2026-09-20:** a separação de disciplina descrita no topo
+alterou policies existentes de `estoquista` e `eletricista` e revogou `DELETE`
+das duas tabelas. Foi decisão tomada com a Elétrica em produção, não descuido —
+a regra aditiva continua valendo para todo o resto.
 
 ---
 
@@ -235,6 +237,11 @@ declarativa e dormente custa menos que uma trigger a mais.
 A tela da Elétrica (`StockManager.jsx:867-868`) apaga todas as movimentações
 de um item e depois o item. Na TI isso **não** foi trazido, e não existe
 policy de DELETE em `stock_movements` para `central_ti`.
+
+Desde 2026-09-20 isso deixou de depender da tela: `DELETE` e `TRUNCATE` foram
+revogados de `anon` e `authenticated` nas duas tabelas, com policy RESTRICTIVE
+`using(false)` por cima. Ninguém apaga item nem movimentação, por nenhum
+caminho.
 
 Razão: movimentação de material é registro administrativo. Não se apaga, se
 estorna. Apagar movimentações para poder apagar o item destrói a trilha de

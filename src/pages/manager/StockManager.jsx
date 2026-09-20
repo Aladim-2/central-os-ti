@@ -28,13 +28,6 @@ import {
 // que filtram disciplina 'ti'. Nenhum sb.from() direto aqui.
 // ============================================================
 
-// A carga inicial do catálogo está bloqueada até a Elétrica
-// filtrar por disciplina nas consultas de estoque. Enquanto isso,
-// a importação por CSV fica construída e desarmada: valida,
-// mostra a prévia e recusa gravar. Ver o topo de
-// docs/estoque-ti.md — liberar é trocar este booleano.
-const IMPORTACAO_LIBERADA = false
-
 const AZUL   = '#1D4ED8'
 const ESCURO = '#1E3A8A'
 const LARANJA = '#C2410C'
@@ -239,20 +232,6 @@ export default function StockManager({ profile, osList = [], onReload }) {
           Almoxarifado de informática — material de consumo e peças
         </p>
       </div>
-
-      {!IMPORTACAO_LIBERADA && items.length === 0 && !loading && (
-        <div style={{ background:'#FFF7ED', border:'1px solid #FCD34D', borderRadius:10, padding:'12px 16px', marginBottom:14 }}>
-          <p style={{ fontSize:13, fontWeight:600, color:'#92400E', marginBottom:4 }}>
-            ⛔ Carga inicial do catálogo ainda bloqueada
-          </p>
-          <p style={{ fontSize:12, color:'#92400E', lineHeight:1.5 }}>
-            A Central OS Elétrica ainda não filtra por disciplina nas consultas de estoque.
-            Enquanto isso, item de TI cadastrado apareceria nas telas dela e poderia ser
-            apagado por lá, junto com todas as suas movimentações. A tela funciona para
-            teste; a carga de itens reais espera a correção. Ver <code>docs/estoque-ti.md</code>.
-          </p>
-        </div>
-      )}
 
       <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginBottom:'1.2rem' }}>
         {[
@@ -939,10 +918,6 @@ function TabCadastro({ items, onSaved, showMsg, showErr, saving, setSaving }) {
   function analisarCsv() { setPrevia(parseCsvItens(csv)) }
 
   async function confirmarImportacao() {
-    if (!IMPORTACAO_LIBERADA) {
-      showErr('Importação bloqueada até a Central OS Elétrica filtrar por disciplina. Ver docs/estoque-ti.md.')
-      return
-    }
     setSaving(true)
     try {
       const gravados = await importarItens(previa.itens)
@@ -1050,16 +1025,6 @@ function TabCadastro({ items, onSaved, showMsg, showErr, saving, setSaving }) {
           Separador <code>;</code> ou <code>,</code>. A primeira linha pode ser cabeçalho.
         </p>
 
-        {!IMPORTACAO_LIBERADA && (
-          <div style={{ background:'#FFF7ED', border:'0.5px solid #FCD34D', borderRadius:8, padding:'10px 12px', marginBottom:10 }}>
-            <p style={{ fontSize:12, color:'#92400E', lineHeight:1.5 }}>
-              ⛔ <strong>Gravação bloqueada.</strong> A conferência funciona e mostra os erros,
-              mas a importação só é liberada depois que a Central OS Elétrica filtrar por
-              disciplina. Ver <code>docs/estoque-ti.md</code>.
-            </p>
-          </div>
-        )}
-
         <textarea value={csv} onChange={e=>{ setCsv(e.target.value); setPrevia(null) }} rows={5}
           placeholder={'Toner HP 85A;Suprimento;pç;4\nCabo de rede Cat6;Cabeamento;m;50\nSSD 480GB;Componente;pç;2'}
           style={{ ...ST.input, resize:'vertical', fontFamily:'monospace', fontSize:12 }} />
@@ -1069,10 +1034,9 @@ function TabCadastro({ items, onSaved, showMsg, showErr, saving, setSaving }) {
             🔍 Conferir
           </button>
           {previa && previa.itens.length > 0 && previa.erros.length === 0 && (
-            <button onClick={confirmarImportacao} disabled={saving || !IMPORTACAO_LIBERADA}
-              style={{ ...ST.btnP, opacity:(saving || !IMPORTACAO_LIBERADA)?.5:1,
-                cursor:IMPORTACAO_LIBERADA?'pointer':'not-allowed' }}>
-              {IMPORTACAO_LIBERADA ? `✓ Importar ${previa.itens.length} item(ns)` : '⛔ Importação bloqueada'}
+            <button onClick={confirmarImportacao} disabled={saving}
+              style={{ ...ST.btnP, opacity:saving?.5:1 }}>
+              ✓ Importar {previa.itens.length} item(ns)
             </button>
           )}
         </div>
