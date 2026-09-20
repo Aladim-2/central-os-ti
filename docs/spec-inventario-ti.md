@@ -255,7 +255,7 @@ Estender à `ti_ativos` o trigger `ti_orders_auditar` já aplicado à `ti_orders
 `ti_ativos_audit` com a mesma estrutura. Alteração de patrimônio sem trilha de nível de banco é
 alteração sem autor.
 
-> **VERIFICADO e implementado na Fase 1**, com dois desvios aprovados em 20/09/2026:
+> **VERIFICADO e implementado na Fase 1**, com três desvios aprovados em 20/09/2026:
 >
 > 1. **`ti_ativos_audit` tem `qr_slug` além de `tombamento`.** O espelho literal de
 >    `ti_orders_audit` traria só o identificador humano (`numero` → `tombamento`), mas
@@ -265,6 +265,25 @@ alteração sem autor.
 >    grava `'(alterado)'`. Com o trigger de toque do Bloco 4, todo UPDATE mexe em `updated_at`,
 >    então o curto-circuito "sem diferença, sem linha" nunca dispararia e a trilha ganharia uma
 >    linha por UPDATE que não mudou nada de fato.
+>
+> 3. **No INSERT, coluna nula não entra na trilha; no UPDATE, entra.** A assimetria é
+>    deliberada, e é a distinção entre ausência e apagamento.
+>
+>    `ti_ativos` tem 40 colunas e o cadastro preenche cerca de quinze. Como no INSERT
+>    `v_old` é `{}`, toda coluna difere — inclusive as vinte e cinco que nasceram nulas —,
+>    e a trilha gravava trinta e nove entradas de `de: null / para: null`. Não era defeito:
+>    era o registro de nascimento do bem, completo. Mas quem audita abre a trilha para achar
+>    o que mudou, e vinte e cinco linhas de nada empurram para baixo as quinze que importam.
+>    Trilha difícil de ler é o primeiro passo para trilha que ninguém lê.
+>
+>    No UPDATE a coluna que virou nula **continua entrando**, porque ali
+>    `de: valor / para: null` é alguém apagando um campo do patrimônio — exatamente o que
+>    a trilha existe para mostrar. No INSERT, nulo não é mudança: é ausência.
+>
+>    Aplicado por `supabase/migrations/20260920b_trilha_ativos_insert_enxuto.sql`, em
+>    arquivo separado porque a migration de Fase 1 já havia rodado em produção. Editar
+>    migration aplicada é o que torna uma pasta de migrations indigna de confiança: o
+>    arquivo passa a descrever algo que nunca foi executado.
 >
 > **Privilégios.** Além da RLS, a tabela leva
 > `revoke all ... from anon, authenticated` e `grant select ... to authenticated` — mesmo estado
