@@ -11,6 +11,7 @@ import NotificacaoConfig from './NotificacaoConfig'
 import Relatorios from './Relatorios'
 import Versao from '../../Versao'
 import TrocarSenha from '../TrocarSenha'
+import { nomesApoio } from '../../components/EquipeTI'
 
 // ── Avatar ───────────────────────────────────────────────────
 function Avatar({ initials, size = 28 }) {
@@ -322,7 +323,7 @@ export default function ManagerApp({ profile }) {
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#888780', fontSize: 18, lineHeight: 1 }}>✕</button>
               </div>
               <p style={{ fontSize: 13, fontWeight: 600, color: '#1E3A8A', marginBottom: 3 }}>🏫 {os.location?.name}</p>
-              <p style={{ fontSize: 12, color: '#555', marginBottom: 3 }}>💻 {os.tecnico?.name || 'sem técnico'}</p>
+              <p style={{ fontSize: 12, color: '#555', marginBottom: 3 }}>💻 {os.tecnico?.name || 'sem técnico'}{nomesApoio(os).length > 0 && ` + ${nomesApoio(os).length} de apoio`}</p>
               <p style={{ fontSize: 12, color: '#555', marginBottom: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {os.descricao}
               </p>

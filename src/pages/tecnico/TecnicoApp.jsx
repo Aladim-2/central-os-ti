@@ -5,6 +5,7 @@ import { lerFalhas, limparFalhas, falhasEmTexto } from '../../lib/diagnostico'
 import OSExec from './OSExec'
 import TrocarSenha from '../TrocarSenha'
 import Versao from '../../Versao'
+import { SeloApoio, EquipeLinha } from '../../components/EquipeTI'
 
 // ============================================================
 // APP DE CAMPO DO TÉCNICO DE TI
@@ -73,10 +74,14 @@ export default function TecnicoApp({ profile }) {
   const [copiado,   setCopiado]   = useState(false)
 
   const jaFezDeepLink = useRef(false)
+  // OS em que este técnico é apoio — deixa passar o Realtime de ti_orders
+  // dessas OS, que o filtro por tecnico_id descartaria.
+  const apoioIds = useRef(new Set())
 
   const carregar = useCallback(async () => {
     try {
       const orders = await fetchOS(profile.id, 'tecnico_ti')
+      apoioIds.current = new Set(orders.filter(o => o._apoio).map(o => o.id))
       setOsList(orders)
 
       // A OS ABERTA tambem, e nao so a lista.
@@ -138,7 +143,7 @@ export default function TecnicoApp({ profile }) {
     atualizarPendentes()
     sincronizar()
 
-    const unsub = subscribeOS(profile.id, 'tecnico_ti', () => carregar())
+    const unsub = subscribeOS(profile.id, 'tecnico_ti', () => carregar(), id => apoioIds.current.has(id))
 
     // A fila drena quando a rede volta, quando o app volta ao
     // primeiro plano e de tempos em tempos. As três coisas
@@ -447,6 +452,7 @@ export default function TecnicoApp({ profile }) {
                     <div style={{ display:'flex', gap:6, marginBottom:8, flexWrap:'wrap', alignItems:'center' }}>
                       <span style={{ fontFamily:'monospace', fontSize:12, fontWeight:600 }}>{os.numero}</span>
                       <StatusBadge status={os.status} />
+                      {os._apoio && <SeloApoio />}
                       {os.prioridade === 'Alta' && (
                         <span style={{ fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:10, background:'#FEE2E2', color:'#991B1B' }}>Alta</span>
                       )}
@@ -479,6 +485,7 @@ export default function TecnicoApp({ profile }) {
                     <p style={{ fontSize:11, color: atrasada ? '#DC2626' : '#888780' }}>
                       ⏱ {fmtPrazo(os.prazo_sla)}
                     </p>
+                    <EquipeLinha os={os} style={{ fontSize:11, marginTop:4 }} />
                   </div>
                 )
               })}
@@ -504,6 +511,7 @@ export default function TecnicoApp({ profile }) {
                       <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:3 }}>
                         <span style={{ fontFamily:'monospace', fontSize:11 }}>{os.numero}</span>
                         <StatusBadge status={os.status} />
+                        {os._apoio && <SeloApoio />}
                         <span style={{ marginLeft:'auto', fontSize:11, color:'#b4b2a9' }}>›</span>
                       </div>
                       <p style={{ fontSize:12, color:'#888780', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>

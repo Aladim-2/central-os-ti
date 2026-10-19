@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import {
   supabase, updateOS, addHistory, uploadPhoto, deletePhoto,
+  syncOSTeam, fetchOSTeam,
   STATUS, ORDEM_FLUXO, STAGE_POR_STATUS
 } from '../../supabase'
+import EquipePicker, { EquipeLinha } from '../../components/EquipeTI'
 
 // ── Formatação ───────────────────────────────────────────────
 function fmtDT(v) {
@@ -56,6 +58,10 @@ export default function OSDetail({ os: initialOS, profile, tecnicos, onUpdated, 
     solucao:          initialOS.solucao || '',
     observations:     initialOS.observations || '',
   })
+  // Técnicos de apoio (ti_os_team). O principal segue em ti_orders.tecnico_id.
+  const [editApoio, setEditApoio] = useState(
+    (initialOS.team || []).map(t => t.tecnico_id).filter(id => id !== initialOS.tecnico_id)
+  )
 
   const encerrada = ['concluida', 'cancelada'].includes(os.status)
   const idxAtual  = ORDEM_FLUXO.indexOf(os.status)
@@ -91,9 +97,25 @@ export default function OSDetail({ os: initialOS, profile, tecnicos, onUpdated, 
         solucao:          editF.solucao || null,
         observations:     editF.observations || null,
       })
-      propagar(updated)
+
+      // Equipe depois do chamado. Se o novo principal estava no apoio,
+      // ele sai da lista (syncOSTeam nunca grava o principal como apoio).
+      let team = updated.team || []
+      let falhaEquipe = null
+      try {
+        await syncOSTeam(os.id, editApoio, editF.tecnico_id || null)
+        team = await fetchOSTeam(os.id)
+      } catch (e) {
+        falhaEquipe = e
+      }
+      propagar({ ...updated, team })
+      setEditApoio(team.map(t => t.tecnico_id).filter(id => id !== updated.tecnico_id))
       setEditing(false)
-      showToast('success', 'Chamado atualizado.')
+      if (falhaEquipe) {
+        showToast('error', 'Chamado salvo, mas a equipe de apoio NÃO foi gravada: ' + falhaEquipe.message)
+      } else {
+        showToast('success', 'Chamado atualizado.')
+      }
     } catch (e) {
       showToast('error', 'Erro ao salvar: ' + e.message)
     } finally {
@@ -380,6 +402,7 @@ export default function OSDetail({ os: initialOS, profile, tecnicos, onUpdated, 
                 <div style={{ marginBottom: 10 }}>
                   <p className="label">Técnico</p>
                   <p>💻 {os.tecnico?.name || '—'}{os.tecnico?.phone ? ` · ${os.tecnico.phone}` : ''}</p>
+                  <EquipeLinha os={os} style={{ marginTop: 4 }} />
                 </div>
                 <div style={{ marginBottom: 10 }}>
                   <p className="label">Prioridade</p>
@@ -446,6 +469,12 @@ export default function OSDetail({ os: initialOS, profile, tecnicos, onUpdated, 
                     {tecnicos.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                   </select>
                 </div>
+                {editF.tecnico_id && (
+                  <div style={{ marginBottom: 12, gridColumn: '1 / -1' }}>
+                    <label className="label">Técnicos de apoio (opcional)</label>
+                    <EquipePicker tecnicos={tecnicos} principalId={editF.tecnico_id} value={editApoio} onChange={setEditApoio} />
+                  </div>
+                )}
                 <div style={{ marginBottom: 12 }}>
                   <label className="label">Prioridade</label>
                   <select value={editF.prioridade} onChange={e => set('prioridade', e.target.value)}>

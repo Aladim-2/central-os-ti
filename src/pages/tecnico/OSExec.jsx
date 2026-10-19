@@ -6,6 +6,7 @@ import {
 } from '../../supabase'
 import { enfileirarTransicao, pendentesDaOS, novoUuid, removerItem } from '../../lib/filaOffline'
 import { registrarFalha } from '../../lib/diagnostico'
+import { EquipeLinha } from '../../components/EquipeTI'
 
 // ============================================================
 // EXECUÇÃO DE UMA OS — tela do técnico em campo
@@ -1262,6 +1263,7 @@ export default function OSExec({ os, profile, onAplicado, onVoltar }) {
           <p style={{ fontSize:11, color:CINZA }}>🏷 Tombo {os.ativo.tombamento} · {os.ativo.tipo} {os.ativo.marca || ''}</p>
         )}
         <p style={{ fontSize:11, color:CINZA, marginTop:4 }}>⏱ Prazo: {fmtPrazo(os.prazo_sla)}</p>
+        <EquipeLinha os={os} style={{ fontSize:11, marginTop:4 }} />
         {os.solicitante_nome && (
           <p style={{ fontSize:11, color:CINZA }}>
             🙋 {os.solicitante_nome}

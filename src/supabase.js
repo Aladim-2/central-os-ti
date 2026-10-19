@@ -246,6 +246,12 @@ export async function fetchStatusOS() {
 
 // ── Ordens de Serviço ────────────────────────────────────────
 
+// Equipe da OS: ti_orders.tecnico_id continua sendo o PRINCIPAL;
+// ti_os_team guarda os técnicos de APOIO. Mesmo desenho da Central OS
+// Elétrica (service_orders.electrician_id + os_team). Relatórios,
+// contagens e o hash do relatório seguem pelo principal.
+const TEAM_EMBED = 'team:ti_os_team(tecnico_id, role, archived, tecnico:profiles!ti_os_team_tecnico_id_fkey(id, name, phone))'
+
 export async function fetchOS(userId, role) {
   let query = supabase
     .from('ti_orders')
@@ -256,16 +262,72 @@ export async function fetchOS(userId, role) {
       tipo:ti_tipos_demanda(*),
       ativo:ti_ativos(*),
       history:ti_os_history(*),
-      photos:ti_os_photos!ti_os_photos_os_id_fkey(*)
+      photos:ti_os_photos!ti_os_photos_os_id_fkey(*),
+      ${TEAM_EMBED}
     `)
     .order('created_at', { ascending: false })
 
-  // A RLS já restringe, mas filtrar aqui evita tráfego inútil.
+  // A RLS já restringe (ti_is_os_member), mas filtrar aqui evita tráfego
+  // inútil. O técnico vê as OS em que é principal E as em que é apoio:
+  // filtrar só por tecnico_id escondia do apoio a OS que a RLS já libera.
   if (role === 'tecnico_ti') {
-    query = query.eq('tecnico_id', userId)
+    const { data: equipe, error: eqErr } = await supabase
+      .from('ti_os_team').select('os_id').eq('tecnico_id', userId)
+    if (eqErr) throw eqErr
+    const idsApoio = (equipe || []).map(t => t.os_id)
+    query = idsApoio.length
+      ? query.or(`tecnico_id.eq.${userId},id.in.(${idsApoio.join(',')})`)
+      : query.eq('tecnico_id', userId)
   }
 
   const { data, error } = await query
+  if (error) throw error
+  if (role !== 'tecnico_ti') return data || []
+  // _apoio marca as OS em que este técnico não é o principal
+  return (data || []).map(o => (o.tecnico_id === userId ? o : { ...o, _apoio: true }))
+}
+
+// ── Equipe da OS (técnicos de apoio) ─────────────────────────
+
+// Grava a lista de apoio de uma OS: insere os novos e apaga os que
+// saíram. O principal nunca entra como apoio.
+export async function syncOSTeam(osId, apoioIds, principalId = null) {
+  const alvo = [...new Set(apoioIds)].filter(id => id && id !== principalId)
+
+  const { data, error } = await supabase
+    .from('ti_os_team').select('tecnico_id').eq('os_id', osId)
+  if (error) throw error
+  const atuais    = (data || []).map(t => t.tecnico_id)
+  const novos     = alvo.filter(id => !atuais.includes(id))
+  const removidos = atuais.filter(id => !alvo.includes(id))
+
+  // .select() nos dois: sob RLS, DELETE ou INSERT recusado pode voltar
+  // com error nulo e zero linhas. Sem conferir a contagem, a tela diria
+  // "equipe salva" sem ter salvo (docs/falhas-silenciosas.md).
+  if (removidos.length) {
+    const { data: apagadas, error: e1 } = await supabase.from('ti_os_team')
+      .delete().eq('os_id', osId).in('tecnico_id', removidos).select('tecnico_id')
+    if (e1) throw e1
+    if ((apagadas || []).length !== removidos.length) {
+      throw new Error(`a equipe não foi atualizada: ${removidos.length} técnico(s) a retirar, ${(apagadas || []).length} retirado(s)`)
+    }
+  }
+  if (novos.length) {
+    const { data: inseridas, error: e2 } = await supabase.from('ti_os_team')
+      .insert(novos.map(id => ({ os_id: osId, tecnico_id: id, role: 'apoio' })))
+      .select('tecnico_id')
+    if (e2) throw e2
+    if ((inseridas || []).length !== novos.length) {
+      throw new Error(`a equipe não foi atualizada: ${novos.length} técnico(s) a incluir, ${(inseridas || []).length} incluído(s)`)
+    }
+  }
+}
+
+export async function fetchOSTeam(osId) {
+  const { data, error } = await supabase
+    .from('ti_os_team')
+    .select('tecnico_id, role, archived, tecnico:profiles!ti_os_team_tecnico_id_fkey(id, name, phone)')
+    .eq('os_id', osId)
   if (error) throw error
   return data || []
 }
@@ -280,7 +342,8 @@ export async function fetchOSPorNumero(numero) {
       tipo:ti_tipos_demanda(*),
       ativo:ti_ativos(*),
       history:ti_os_history(*),
-      photos:ti_os_photos!ti_os_photos_os_id_fkey(*)
+      photos:ti_os_photos!ti_os_photos_os_id_fkey(*),
+      ${TEAM_EMBED}
     `)
     .eq('numero', numero)
     .single()
@@ -298,7 +361,8 @@ export async function createOS(payload) {
       *,
       location:locations(*),
       tecnico:profiles!ti_orders_tecnico_id_fkey(*),
-      tipo:ti_tipos_demanda(*)
+      tipo:ti_tipos_demanda(*),
+      ${TEAM_EMBED}
     `)
     .single()
   if (error) throw error
@@ -318,7 +382,8 @@ export async function updateOS(id, updates) {
       tipo:ti_tipos_demanda(*),
       ativo:ti_ativos(*),
       history:ti_os_history(*),
-      photos:ti_os_photos!ti_os_photos_os_id_fkey(*)
+      photos:ti_os_photos!ti_os_photos_os_id_fkey(*),
+      ${TEAM_EMBED}
     `)
     .single()
   if (error) throw error
@@ -1506,16 +1571,31 @@ export async function fetchSlaRisco() {
 
 // ── Realtime ─────────────────────────────────────────────────
 
-export function subscribeOS(userId, role, callback) {
+// isApoio(osId): opcional; deixa passar eventos das OS em que o técnico
+// é apoio (o filtro por tecnico_id só cobre o principal).
+//
+// ti_os_team também é escutada: incluir ou tirar alguém da equipe não
+// mexe em ti_orders, e sem isto o apoio recém-incluído só veria a OS
+// depois de recarregar o app. A Elétrica tem essa lacuna; aqui não.
+// DELETE no Realtime chega só com a chave, sem tecnico_id: por isso o
+// técnico recarrega em qualquer evento da equipe, e a RLS faz o resto.
+export function subscribeOS(userId, role, callback, isApoio) {
   const channel = supabase
     .channel('ti-os-changes')
     .on(
       'postgres_changes',
       { event: '*', schema: 'public', table: 'ti_orders' },
       (payload) => {
-        if (role === 'tecnico_ti' && payload.new?.tecnico_id !== userId) return
+        if (role === 'tecnico_ti'
+            && payload.new?.tecnico_id !== userId
+            && !isApoio?.(payload.new?.id)) return
         callback(payload)
       }
+    )
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'ti_os_team' },
+      (payload) => callback(payload)
     )
     .subscribe()
 
@@ -1699,7 +1779,8 @@ export async function validarRelatorio(os, gestor, justificativaSemFoto = null) 
       tipo:ti_tipos_demanda(*),
       ativo:ti_ativos(*),
       history:ti_os_history(*),
-      photos:ti_os_photos!ti_os_photos_os_id_fkey(*)
+      photos:ti_os_photos!ti_os_photos_os_id_fkey(*),
+      ${TEAM_EMBED}
     `)
 
   if (error) throw error

@@ -3,6 +3,7 @@ import {
   STATUS, ORDEM_FLUXO, UNIDADES_ESTOQUE,
   supabase, updateOS, addHistory, fetchStockItems
 } from '../../supabase'
+import { nomesApoio } from '../../components/EquipeTI'
 
 // --- Formatacao ---------------------------------------------
 function fmtDT(v) {
@@ -156,7 +157,7 @@ function CardOS({ os, onOpen, onMaps }) {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 11, color: '#888780' }}>
         {os.tipo?.nome && <span>🏷 {os.tipo.nome}</span>}
-        <span>💻 {os.tecnico?.name || 'sem técnico'}</span>
+        <span>💻 {os.tecnico?.name || 'sem técnico'}{nomesApoio(os).length > 0 && ` + ${nomesApoio(os).length} de apoio`}</span>
         <span>🕐 {fmtDT(os.created_at)}</span>
         {fotos > 0 && <span>🖼 {fotos} foto(s)</span>}
         {os.ativo?.tombamento && <span>🏷 tomb. {os.ativo.tombamento}</span>}
@@ -560,6 +561,7 @@ export default function Dashboard({ osList, onOpen, onNew, onUpdated, profile })
                     {os.location?.phone && <p style={{ fontSize: 11, color: '#888780', marginBottom: 2 }}>📞 {os.location.phone}</p>}
                     <p style={{ fontSize: 12, color: '#5f5e5a', marginTop: 4 }}>
                       💻 Técnico: <strong>{os.tecnico?.name || '—'}</strong>
+                      {nomesApoio(os).length > 0 && <> · 👥 Apoio: {nomesApoio(os).join(', ')}</>}
                     </p>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>

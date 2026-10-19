@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
-import { createOS, addHistory, fetchTiposDemanda, fetchAtivos } from '../../supabase'
+import { createOS, addHistory, fetchTiposDemanda, fetchAtivos, syncOSTeam, fetchOSTeam } from '../../supabase'
+import EquipePicker from '../../components/EquipeTI'
 // O autocomplete de local saiu daqui para LocalAutocomplete.jsx quando o
 // inventario passou a precisar do mesmo controle. Duplicar cem linhas
 // garantiria que uma das duas copias envelhecesse.
@@ -27,6 +28,7 @@ export default function CreateOS({ locs, tecnicos, profile, onCreated, onBack })
     canal_entrada: 'manual', solicitante_nome: '', solicitante_telefone: '',
     observations: ''
   })
+  const [apoio,   setApoio]   = useState([])  // técnicos de apoio (ti_os_team)
   const [tipos,   setTipos]   = useState([])
   const [ativos,  setAtivos]  = useState([])
   const [loading, setLoading] = useState(false)
@@ -96,7 +98,21 @@ export default function CreateOS({ locs, tecnicos, profile, onCreated, onBack })
         status:               'recebida'
       })
       await addHistory(os.id, 'recebida', profile.name, profile.id)
-      onCreated(os)
+
+      // Equipe depois da OS: ti_os_team referencia ti_orders.id. Não é
+      // atômico — se a equipe falhar, a OS existe só com o principal, e
+      // isso é dito na tela em vez de engolido.
+      const ids = apoio.filter(id => id !== f.tecnico_id)
+      let team = []
+      if (ids.length) {
+        try {
+          await syncOSTeam(os.id, ids, f.tecnico_id)
+          team = await fetchOSTeam(os.id)
+        } catch (e) {
+          alert(`Chamado ${os.numero || ''} criado, mas a equipe de apoio NÃO foi gravada: ${e.message}\nAbra o chamado, clique em Editar e salve a equipe de novo.`)
+        }
+      }
+      onCreated({ ...os, team })
     } catch (e) {
       setError('Erro ao criar OS: ' + e.message)
     } finally {
@@ -207,6 +223,14 @@ export default function CreateOS({ locs, tecnicos, profile, onCreated, onBack })
             <p style={{ marginTop: 6, fontSize: 11, color: '#1E3A8A' }}>📞 {tecSel.phone}</p>
           )}
         </div>
+
+        {/* Técnicos de apoio (opcional) */}
+        {f.tecnico_id && (
+          <div style={{ marginBottom: 14 }}>
+            <label className="label">Técnicos de apoio (opcional)</label>
+            <EquipePicker tecnicos={tecnicos} principalId={f.tecnico_id} value={apoio} onChange={setApoio} />
+          </div>
+        )}
 
         <div className="grid2">
           {/* Modo de atendimento */}
