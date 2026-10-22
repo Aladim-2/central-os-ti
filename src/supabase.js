@@ -390,6 +390,34 @@ export async function updateOS(id, updates) {
   return data
 }
 
+// ── Prorrogação de prazo ─────────────────────────────────────
+// O prazo só muda pela função do banco (ti_prorrogar_prazo): ela confere
+// o papel (gestor/central_ti), exige motivo e grava o histórico. Update
+// direto em prazo_sla é recusado pelo gatilho trg_ti_prazo_guarda.
+// Diverge da Elétrica (deadline fixo, sem trilha) por exigência de auditoria.
+export async function prorrogarPrazo(osId, novoPrazo, motivo) {
+  const { data, error } = await supabase.rpc('ti_prorrogar_prazo', {
+    p_os_id:      osId,
+    p_novo_prazo: novoPrazo,
+    p_motivo:     motivo,
+  })
+  if (error) throw error
+  // A função devolve o prazo gravado. Nulo seria gravação que não
+  // aconteceu — não pode passar como sucesso (docs/falhas-silenciosas.md).
+  if (!data) throw new Error('a prorrogação não foi gravada')
+  return data
+}
+
+export async function fetchPrazoHistorico(osId) {
+  const { data, error } = await supabase
+    .from('ti_os_prazo_historico')
+    .select('*')
+    .eq('os_id', osId)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data || []
+}
+
 export async function deleteOS(id) {
   const { error } = await supabase.from('ti_orders').delete().eq('id', id)
   if (error) throw error

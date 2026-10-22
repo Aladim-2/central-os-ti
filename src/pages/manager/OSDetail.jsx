@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   supabase, updateOS, addHistory, uploadPhoto, deletePhoto,
   syncOSTeam, fetchOSTeam,
+  prorrogarPrazo, fetchPrazoHistorico, fetchOSPorNumero,
   STATUS, ORDEM_FLUXO, STAGE_POR_STATUS
 } from '../../supabase'
 import EquipePicker, { EquipeLinha } from '../../components/EquipeTI'
@@ -12,6 +13,19 @@ function fmtDT(v) {
   return new Date(v).toLocaleString('pt-BR', {
     day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
   })
+}
+
+// Valor para <input type="datetime-local"> no fuso do aparelho.
+function paraInputLocal(d) {
+  const p = n => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+// Sugestão inicial: prazo atual + 3 dias, ou agora + 3 dias se já venceu.
+function sugestaoPrazo(prazoAtual) {
+  const base = prazoAtual && new Date(prazoAtual) > new Date() ? new Date(prazoAtual) : new Date()
+  base.setDate(base.getDate() + 3)
+  return paraInputLocal(base)
 }
 
 const LABEL_STAGE = {
@@ -72,6 +86,58 @@ export default function OSDetail({ os: initialOS, profile, tecnicos, onUpdated, 
   // não protege nada — só evita mostrar ao usuário um botão que a policy
   // vai recusar. Botão que falha em silêncio é o pior retorno possível.
   const podeExcluir = profile?.role === 'gestor'
+
+  // Prorrogação de prazo: gestor e Central. A trava real está no banco
+  // (ti_prorrogar_prazo confere o papel); aqui só se esconde o botão.
+  const podeProrrogar = ['gestor', 'central_ti'].includes(profile?.role) && !encerrada
+  const [prazoHist,     setPrazoHist]     = useState([])
+  const [prorrogando,   setProrrogando]   = useState(false)
+  const [novoPrazo,     setNovoPrazo]     = useState('')
+  const [motivoPrazo,   setMotivoPrazo]   = useState('')
+  const [salvandoPrazo, setSalvandoPrazo] = useState(false)
+
+  const prazoVencido = !encerrada && os.prazo_sla && new Date(os.prazo_sla) < new Date()
+  const prazoPerto   = !encerrada && os.prazo_sla && !prazoVencido &&
+                       (new Date(os.prazo_sla) - new Date()) < 24 * 3600 * 1000
+  // Aguardando material é onde o prazo costuma estourar: sugere prorrogar.
+  const sugerirProrrogar = podeProrrogar && os.status === 'aguardando' && (prazoVencido || prazoPerto)
+
+  useEffect(() => {
+    let vivo = true
+    fetchPrazoHistorico(os.id)
+      .then(h => { if (vivo) setPrazoHist(h) })
+      .catch(e => console.error('Histórico de prazo:', e))
+    return () => { vivo = false }
+  }, [os.id, os.prazo_prorrogacoes])
+
+  function abrirProrrogacao() {
+    setNovoPrazo(sugestaoPrazo(os.prazo_sla))
+    setMotivoPrazo('')
+    setProrrogando(true)
+  }
+
+  async function salvarProrrogacao() {
+    const motivo = motivoPrazo.trim()
+    if (!novoPrazo) return showToast('error', 'Informe a nova data do prazo.')
+    const quando = new Date(novoPrazo)
+    if (isNaN(quando) || quando <= new Date()) return showToast('error', 'O novo prazo precisa ser uma data futura.')
+    if (motivo.length < 10) return showToast('error', 'Explique o motivo da prorrogação (mínimo de 10 caracteres).')
+
+    setSalvandoPrazo(true)
+    try {
+      await prorrogarPrazo(os.id, quando.toISOString(), motivo)
+      // Relê a OS do banco: o prazo exibido é o gravado, não o digitado.
+      const atualizada = await fetchOSPorNumero(os.numero)
+      propagar(atualizada)
+      setPrazoHist(await fetchPrazoHistorico(os.id))
+      setProrrogando(false)
+      showToast('success', `Prazo prorrogado para ${fmtDT(atualizada.prazo_sla)}.`)
+    } catch (e) {
+      showToast('error', 'Não foi possível prorrogar: ' + (e.message || e))
+    } finally {
+      setSalvandoPrazo(false)
+    }
+  }
 
   function showToast(type, message) {
     setToast({ type, message })
@@ -414,7 +480,15 @@ export default function OSDetail({ os: initialOS, profile, tecnicos, onUpdated, 
                 </div>
                 <div style={{ marginBottom: 10 }}>
                   <p className="label">Prazo (SLA)</p>
-                  <p>{fmtDT(os.prazo_sla)}{os.sla_horas ? ` · ${os.sla_horas}h` : ''}</p>
+                  <p style={{ color: prazoVencido ? '#991B1B' : undefined, fontWeight: prazoVencido ? 600 : undefined }}>
+                    {fmtDT(os.prazo_sla)}{os.sla_horas ? ` · ${os.sla_horas}h` : ''}
+                    {prazoVencido && ' · vencido'}
+                  </p>
+                  {os.prazo_prorrogacoes > 0 && (
+                    <p style={{ fontSize: 11, color: '#92400E', marginTop: 2 }}>
+                      Prorrogado {os.prazo_prorrogacoes}x · original {fmtDT(os.prazo_original)}
+                    </p>
+                  )}
                 </div>
                 {os.solicitante_nome && (
                   <div style={{ marginBottom: 10 }}>
@@ -457,7 +531,71 @@ export default function OSDetail({ os: initialOS, profile, tecnicos, onUpdated, 
                 </div>
               )}
 
-              <button className="btn" onClick={() => setEditing(true)}>✎ Editar</button>
+              {/* PRAZO: aviso, prorrogação e histórico */}
+              {sugerirProrrogar && !prorrogando && (
+                <div style={{ background: '#FEF3C7', color: '#92400E', borderRadius: 8, padding: '10px 12px', fontSize: 13, marginBottom: 12 }}>
+                  ⏳ OS aguardando material com prazo {prazoVencido ? 'vencido' : 'vencendo em menos de 24h'}.
+                  Se a espera é pelo material, registre a prorrogação com o motivo.
+                </div>
+              )}
+
+              {prorrogando && (
+                <div style={{ border: '1px solid #FCD34D', background: '#FFFBEB', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                  <p style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Prorrogar prazo</p>
+                  <p style={{ fontSize: 12, color: '#555', marginBottom: 8 }}>
+                    Prazo atual: {fmtDT(os.prazo_sla)}. O prazo original fica registrado e não é apagado.
+                  </p>
+                  <label className="label" htmlFor="novo-prazo">Novo prazo</label>
+                  <input
+                    id="novo-prazo"
+                    type="datetime-local"
+                    value={novoPrazo}
+                    min={paraInputLocal(new Date())}
+                    onChange={e => setNovoPrazo(e.target.value)}
+                    style={{ width: '100%', marginBottom: 8 }}
+                  />
+                  <label className="label" htmlFor="motivo-prazo">Motivo (obrigatório)</label>
+                  <textarea
+                    id="motivo-prazo"
+                    rows={3}
+                    value={motivoPrazo}
+                    placeholder="Ex.: aguardando entrega do switch 24 portas"
+                    onChange={e => setMotivoPrazo(e.target.value)}
+                    style={{ width: '100%', marginBottom: 4 }}
+                  />
+                  <p style={{ fontSize: 11, color: motivoPrazo.trim().length >= 10 ? '#065F46' : '#888780', marginBottom: 10 }}>
+                    {motivoPrazo.trim().length}/10 caracteres mínimos
+                  </p>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn" onClick={salvarProrrogacao} disabled={salvandoPrazo}
+                      style={{ background: '#E07A05', color: '#fff', borderColor: '#E07A05' }}>
+                      {salvandoPrazo ? 'Salvando…' : 'Confirmar prorrogação'}
+                    </button>
+                    <button className="btn" onClick={() => setProrrogando(false)} disabled={salvandoPrazo}>Cancelar</button>
+                  </div>
+                </div>
+              )}
+
+              {prazoHist.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <p className="label">Histórico de prazo</p>
+                  {prazoHist.map(h => (
+                    <div key={h.id} style={{ fontSize: 12, borderLeft: '3px solid #FCD34D', padding: '4px 0 4px 10px', marginBottom: 6 }}>
+                      <p style={{ color: '#555' }}>
+                        {fmtDT(h.created_at)} · {h.by_name || '—'} · {fmtDT(h.prazo_anterior)} → <b>{fmtDT(h.prazo_novo)}</b>
+                      </p>
+                      <p style={{ whiteSpace: 'pre-wrap' }}>Motivo: {h.motivo}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button className="btn" onClick={() => setEditing(true)}>✎ Editar</button>
+                {podeProrrogar && !prorrogando && (
+                  <button className="btn" onClick={abrirProrrogacao} style={{ color: '#92400E' }}>⏱ Prorrogar prazo</button>
+                )}
+              </div>
             </>
           ) : (
             <>

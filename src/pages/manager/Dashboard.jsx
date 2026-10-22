@@ -89,6 +89,7 @@ function SlaBadge({ os }) {
       color: estilo.fg, background: estilo.bg, whiteSpace: 'nowrap'
     }}>
       {estilo.icone} {rotuloPrazo(os.prazo_sla)}
+      {os.prazo_prorrogacoes > 0 && ` · prorrogado ${os.prazo_prorrogacoes}x`}
     </span>
   )
 }

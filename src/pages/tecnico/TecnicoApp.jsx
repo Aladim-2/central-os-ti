@@ -484,6 +484,7 @@ export default function TecnicoApp({ profile }) {
                     </p>
                     <p style={{ fontSize:11, color: atrasada ? '#DC2626' : '#888780' }}>
                       ⏱ {fmtPrazo(os.prazo_sla)}
+                      {os.prazo_prorrogacoes > 0 && ` · prorrogado ${os.prazo_prorrogacoes}x`}
                     </p>
                     <EquipeLinha os={os} style={{ fontSize:11, marginTop:4 }} />
                   </div>
